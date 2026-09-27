@@ -11,6 +11,7 @@ import { listThreads } from "./github/comments.ts";
 import { getDiff } from "./github/prs.ts";
 import type { PR } from "./github/prs.ts";
 import { useLoader } from "./hooks.ts";
+import type { Landed } from "./hooks.ts";
 import { clampSize, DEFAULT_SIZES, saveSizes } from "./layout.ts";
 import type { PaneSizes } from "./layout.ts";
 import { findStacks, groupStacks, prKey } from "./stacks.ts";
@@ -82,19 +83,37 @@ export const usePaneSizes = (initial: PaneSizes, width: number) => {
   return { dragTo, reset, resize, resizing, saveNow, setResizing, sizes };
 };
 
-// what's listed: the queue's PRs, minus hidden ones and filter misses, with stacks together
+// the queue's PRs, with ones you merged or closed kept where they were even once GitHub has
+// dropped them from the queue, until a manual refresh
+const withLanded = (
+  source: PR[],
+  tab: string,
+  landed: ReadonlyMap<string, Landed>
+) => {
+  const out = [...source];
+  const present = new Set(source.map(prKey));
+  const gone = [...landed.values()]
+    .filter((l) => l.queue === tab && !present.has(prKey(l.pr)))
+    .toSorted((a, b) => a.index - b.index);
+  for (const l of gone) {
+    out.splice(Math.min(l.index, out.length), 0, l.pr);
+  }
+  return out;
+};
+
+// what's listed: the queue's PRs, minus filter misses, with stacks together
 export const useSelection = ({
   lists,
   tab,
   filter,
-  hidden,
+  landed,
   scope,
   cursor,
 }: {
   lists: Record<string, PR[]> | null;
   tab: string;
   filter: string;
-  hidden: ReadonlySet<string>;
+  landed: ReadonlyMap<string, Landed>;
   scope: string;
   cursor: number;
 }) => {
@@ -105,10 +124,12 @@ export const useSelection = ({
       `#${p.number} ${p.title} ${p.author} ${p.headRefName} ${p.repo}`.toLowerCase();
     return terms.every((t) => text.includes(t));
   };
-  const source = lists?.[tab] ?? [];
-  const visible = source.filter((p) => !hidden.has(prKey(p)) && matches(p));
+  const source = withLanded(lists?.[tab] ?? [], tab, landed);
+  const visible = source.filter(matches);
   // stacks come from every open PR in the repo, so a stack shows whole in a filtered view
-  const places = findStacks(scope ? (lists?.all ?? []) : source);
+  const places = findStacks(
+    (scope ? (lists?.all ?? []) : source).filter((p) => p.state === "OPEN")
+  );
   const list = groupStacks(visible, places);
   const pr = list[Math.min(cursor, list.length - 1)];
   return { list, places, pr, source };

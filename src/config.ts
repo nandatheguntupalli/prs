@@ -15,6 +15,8 @@ export interface Config {
   editorCommand?: string;
   // where repos are cloned: "owner/repo", "owner/*" or ":owner/:repo" keys to local paths
   repoPaths?: Record<string, string>;
+  // tabs of your own, each a GitHub search like "is:open label:bug"; kept to the repo when there is one
+  sections?: { title: string; filter: string }[];
 }
 
 const DEFAULTS: Config = { theme: "system" };

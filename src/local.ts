@@ -95,3 +95,12 @@ export const runInTerminal = async (renderer: CliRenderer, command: string) => {
     renderer.resume();
   }
 };
+
+// checks the PR's branch out in its local clone with `gh pr checkout`, which also handles forks
+export const checkoutBranch = async (pr: PR, dir: string) => {
+  await run(
+    ["gh", "pr", "checkout", String(pr.number), "-R", pr.repo],
+    {},
+    dir
+  );
+};

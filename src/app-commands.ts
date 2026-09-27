@@ -25,6 +25,7 @@ export interface CommandContext {
   checks: (p: PR) => unknown;
   copy: (p: PR) => unknown;
   edit: (p: PR) => unknown;
+  checkout: (p: PR) => unknown;
   undo: () => unknown;
   open: () => unknown;
   // the list
@@ -110,7 +111,7 @@ export const buildCommands = (x: CommandContext): Cmd[] => {
     {
       id: "close",
       keys: ["x"],
-      label: "Close",
+      label: "Close or reopen",
       run: x.onPRs(x.close),
       screens: LD,
       section: prs,
@@ -160,6 +161,14 @@ export const buildCommands = (x: CommandContext): Cmd[] => {
       keys: ["e"],
       label: "Open in editor",
       run: x.onPRs(x.edit),
+      screens: LD,
+      section: prs,
+    },
+    {
+      id: "checkout",
+      keys: ["B"],
+      label: "Check out branch",
+      run: x.onPRs(x.checkout),
       screens: LD,
       section: prs,
     },

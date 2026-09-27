@@ -3,8 +3,9 @@ import { prKey } from "../stacks.ts";
 import type { StackPlace } from "../stacks.ts";
 import { C } from "../theme.ts";
 import { age, checksStatus, compact, fit } from "./format.ts";
-import { ICONS } from "./icons.ts";
 import { BOLD } from "./primitives.tsx";
+import { isOpen, statusLook } from "./status.ts";
+import type { Status } from "./status.ts";
 
 // the columns on the right of each PR's first line
 const COLUMNS = [
@@ -59,6 +60,7 @@ const Header = ({ width }: { width: number }) => (
 
 const PRBlock = ({
   pr,
+  status,
   stack,
   selected,
   focused,
@@ -66,6 +68,7 @@ const PRBlock = ({
   onSelect,
 }: {
   pr: PR;
+  status: Status;
   stack: StackPlace | undefined;
   selected: boolean;
   focused: boolean;
@@ -79,11 +82,18 @@ const PRBlock = ({
   );
   const ci = checksStatus(pr.checks);
   const rv = reviewMark(pr);
-  const stackTag = stack
-    ? `  stack ${stack.index + 1}/${stack.stack.members.length}`
-    : "";
+  const look = statusLook(status);
+  const open = isOpen(status);
+  // open PRs show their stack; merged and closed ones say so instead
+  let tag = "";
+  if (!open) {
+    tag = `  ${look.label}`;
+  } else if (stack) {
+    tag = `  stack ${stack.index + 1}/${stack.stack.members.length}`;
+  }
   const meta = `${pr.repo} #${pr.number} by @${pr.author}`;
   const room = width - 4 - RIGHT_W;
+  const title = pr.isDraft && open ? `${pr.title}  (draft)` : pr.title;
   return (
     <box flexDirection="column" onMouseDown={onSelect}>
       <box
@@ -94,13 +104,11 @@ const PRBlock = ({
       >
         <text wrapMode="none">
           {marker}
-          <span fg={pr.isDraft ? C.faint : C.blue}>
-            {` ${pr.isDraft ? ICONS.draft : ICONS.pr}  `}
+          <span fg={look.color}>{` ${look.icon}  `}</span>
+          <span fg={C.dim}>{fit(meta, Math.max(8, room - tag.length))}</span>
+          <span fg={open ? C.blue : look.color} attributes={open ? 0 : BOLD}>
+            {tag}
           </span>
-          <span fg={C.dim}>
-            {fit(meta, Math.max(8, room - stackTag.length))}
-          </span>
-          <span fg={C.blue}>{stackTag}</span>
         </text>
         <text wrapMode="none">
           <span fg={C.faint}>
@@ -121,8 +129,8 @@ const PRBlock = ({
         <text wrapMode="none">
           {marker}
           <span>{"    "}</span>
-          <span fg={pr.isDraft ? C.dim : C.text} attributes={BOLD}>
-            {fit(pr.isDraft ? `${pr.title}  (draft)` : pr.title, width - 6)}
+          <span fg={pr.isDraft || !open ? C.dim : C.text} attributes={BOLD}>
+            {fit(title, width - 6)}
           </span>
         </text>
       </box>
@@ -139,6 +147,7 @@ const BLOCK_H = 3;
 export const PRTable = ({
   list,
   places,
+  statusOf,
   cursor,
   focused,
   width,
@@ -147,6 +156,7 @@ export const PRTable = ({
 }: {
   list: PR[];
   places: Map<string, StackPlace>;
+  statusOf: (pr: PR) => Status;
   cursor: number;
   focused: boolean;
   width: number;
@@ -170,6 +180,7 @@ export const PRTable = ({
         <PRBlock
           key={prKey(p)}
           pr={p}
+          status={statusOf(p)}
           stack={places.get(prKey(p))}
           selected={start + i === cursor}
           focused={focused}

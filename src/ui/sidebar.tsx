@@ -17,10 +17,11 @@ import {
   reviewState,
   reviewStatus,
 } from "./format.ts";
-import { ICONS } from "./icons.ts";
 import type { Action } from "./keys.ts";
 import { markdownStyle } from "./markdown.ts";
 import { BOLD, Button, SectionTitle } from "./primitives.tsx";
+import { isOpen, statusLook } from "./status.ts";
+import type { Status } from "./status.ts";
 
 export interface PRActions {
   handleMerge: Action;
@@ -148,11 +149,13 @@ const Loading = ({ error }: { error: string }) => (
 // repo and number, the title, then state, branches, and who opened it
 const DetailHeader = ({
   pr,
+  status,
   width,
   tab,
   onTab,
 }: {
   pr: PR;
+  status: Status;
   width: number;
   tab: DetailTab;
   onTab: (tab: DetailTab) => void;
@@ -161,6 +164,8 @@ const DetailHeader = ({
     pr.authorAssociation && pr.authorAssociation !== "NONE"
       ? ` · ${pr.authorAssociation.toLowerCase()}`
       : "";
+  const look = statusLook(status);
+  const pill = ` ${look.icon} ${look.label} `;
   return (
     <box flexDirection="column" flexShrink={0}>
       <box
@@ -180,11 +185,14 @@ const DetailHeader = ({
       </box>
       <box flexDirection="column" paddingLeft={1} marginTop={1}>
         <text wrapMode="none">
-          <span bg={pr.isDraft ? C.faint : C.blue} fg={C.bg} attributes={BOLD}>
-            {pr.isDraft ? ` ${ICONS.draft} Draft ` : ` ${ICONS.pr} Open `}
+          <span bg={look.color} fg={C.bg} attributes={BOLD}>
+            {pill}
           </span>
           <span fg={C.dim}>
-            {fit(`  ${pr.baseRefName} ← ${pr.headRefName}`, width - 12)}
+            {fit(
+              `  ${pr.baseRefName} ← ${pr.headRefName}`,
+              width - pill.length - 3
+            )}
           </span>
         </text>
         <text wrapMode="none" marginTop={1}>
@@ -214,8 +222,76 @@ const DetailHeader = ({
   );
 };
 
+// merge, approve and friends while it's open; once it's merged or closed, just what still applies
+const Actions = ({
+  status,
+  behind,
+  conflicted,
+  mergeCount,
+  actions,
+}: {
+  status: Status;
+  behind: number | undefined;
+  conflicted: boolean;
+  mergeCount: number;
+  actions: PRActions;
+}) => {
+  if (!isOpen(status)) {
+    return (
+      <box flexDirection="row" columnGap={1} marginTop={1}>
+        {status === "closed" ? (
+          <Button
+            label="Reopen"
+            color={C.green}
+            onPress={actions.handleClose}
+          />
+        ) : null}
+        <Button label="Open" color={C.dim} onPress={actions.handleOpen} />
+      </box>
+    );
+  }
+  return (
+    <box
+      flexDirection="row"
+      flexWrap="wrap"
+      columnGap={1}
+      rowGap={0}
+      marginTop={1}
+    >
+      <Button
+        label={mergeCount > 1 ? `Merge ${mergeCount}` : "Merge"}
+        color={C.green}
+        onPress={actions.handleMerge}
+      />
+      <Button label="Approve" color={C.blue} onPress={actions.handleApprove} />
+      {behind && behind > 0 && !conflicted ? (
+        <Button
+          label="Update"
+          color={C.yellow}
+          onPress={actions.handleUpdate}
+        />
+      ) : null}
+      <Button label="Close" color={C.red} onPress={actions.handleClose} />
+      <Button label="Open" color={C.dim} onPress={actions.handleOpen} />
+    </box>
+  );
+};
+
+// when a merged or closed PR landed that way
+const LandedLine = ({ pr, status }: { pr: PR; status: Status }) => {
+  const look = statusLook(status);
+  const when = status === "merged" ? pr.mergedAt : pr.closedAt;
+  return (
+    <text fg={look.color}>
+      {`${look.icon} ${look.label}`}
+      <span fg={C.faint}>{when ? ` ${age(when)} ago` : ""}</span>
+    </text>
+  );
+};
+
 const Overview = ({
   pr,
+  status,
   width,
   behind,
   stack,
@@ -223,6 +299,7 @@ const Overview = ({
   actions,
 }: {
   pr: PR;
+  status: Status;
   width: number;
   behind: number | undefined;
   stack: StackPlace | undefined;
@@ -236,12 +313,13 @@ const Overview = ({
     <box flexDirection="column">
       <LabelChips pr={pr} />
       <SectionTitle>Status</SectionTitle>
+      {isOpen(status) ? null : <LandedLine pr={pr} status={status} />}
       <text fg={ci.color}>
         {`${ci.icon} ${ci.label}`}
         <span fg={C.faint}>{pr.checks === "none" ? "" : "  c to view"}</span>
       </text>
       <text fg={rv.color}>{`${rv.icon} ${rv.label}`}</text>
-      <BehindLine pr={pr} behind={behind} />
+      {isOpen(status) ? <BehindLine pr={pr} behind={behind} /> : null}
       <text fg={C.dim}>
         <span fg={C.green}>+{pr.additions}</span>{" "}
         <span fg={C.red}>−{pr.deletions}</span>
@@ -252,33 +330,13 @@ const Overview = ({
       <Reviewers pr={pr} width={width} />
       {stack ? <StackList pr={pr} place={stack} width={width} /> : null}
 
-      <box
-        flexDirection="row"
-        flexWrap="wrap"
-        columnGap={1}
-        rowGap={0}
-        marginTop={1}
-      >
-        <Button
-          label={mergeCount > 1 ? `Merge ${mergeCount}` : "Merge"}
-          color={C.green}
-          onPress={actions.handleMerge}
-        />
-        <Button
-          label="Approve"
-          color={C.blue}
-          onPress={actions.handleApprove}
-        />
-        {behind && behind > 0 && !conflicted ? (
-          <Button
-            label="Update"
-            color={C.yellow}
-            onPress={actions.handleUpdate}
-          />
-        ) : null}
-        <Button label="Close" color={C.red} onPress={actions.handleClose} />
-        <Button label="Open" color={C.dim} onPress={actions.handleOpen} />
-      </box>
+      <Actions
+        status={status}
+        behind={behind}
+        conflicted={conflicted}
+        mergeCount={mergeCount}
+        actions={actions}
+      />
 
       <SectionTitle>Description</SectionTitle>
       <markdown
@@ -447,6 +505,7 @@ const Files = ({ pr, width }: { pr: PR; width: number }) => {
 const TabContent = ({
   tab,
   pr,
+  status,
   width,
   behind,
   stack,
@@ -455,6 +514,7 @@ const TabContent = ({
 }: {
   tab: DetailTab;
   pr: PR;
+  status: Status;
   width: number;
   behind: number | undefined;
   stack: StackPlace | undefined;
@@ -478,6 +538,7 @@ const TabContent = ({
       return (
         <Overview
           pr={pr}
+          status={status}
           width={width}
           behind={behind}
           stack={stack}
@@ -491,6 +552,7 @@ const TabContent = ({
 
 export const Sidebar = ({
   pr,
+  status,
   width,
   behind,
   stack,
@@ -500,6 +562,7 @@ export const Sidebar = ({
   actions,
 }: {
   pr: PR;
+  status: Status;
   width: number;
   behind: number | undefined;
   stack: StackPlace | undefined;
@@ -512,7 +575,13 @@ export const Sidebar = ({
   const inner = width - 3;
   return (
     <box width={width} flexDirection="column" overflow="hidden">
-      <DetailHeader pr={pr} width={width} tab={tab} onTab={onTab} />
+      <DetailHeader
+        pr={pr}
+        status={status}
+        width={width}
+        tab={tab}
+        onTab={onTab}
+      />
       <scrollbox
         flexGrow={1}
         scrollY
@@ -524,6 +593,7 @@ export const Sidebar = ({
         <TabContent
           tab={tab}
           pr={pr}
+          status={status}
           width={inner}
           behind={behind}
           stack={stack}

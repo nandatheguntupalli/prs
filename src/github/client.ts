@@ -2,9 +2,11 @@ import { Octokit } from "@octokit/rest";
 
 export const run = async (
   cmd: string[],
-  env: Record<string, string> = {}
+  env: Record<string, string> = {},
+  cwd?: string
 ): Promise<string> => {
   const proc = Bun.spawn(cmd, {
+    cwd,
     env: { ...process.env, ...env },
     stderr: "pipe",
     stdin: "ignore",

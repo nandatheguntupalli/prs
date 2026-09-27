@@ -63,44 +63,92 @@ export interface Queue {
   label: string;
 }
 
-export const REPO_QUEUES: Queue[] = [
-  { id: "all", label: "All" },
-  { id: "mine", label: "Mine" },
-  { id: "review", label: "Review requested" },
-];
+// a tab of your own: a title and a GitHub search, like "is:open is:pr label:bug"
+export interface Section {
+  title: string;
+  filter: string;
+}
 
 // across every repo, each queue is a GitHub search
 const GLOBAL_QUERIES: Record<string, string> = {
+  closed: "is:pr is:closed is:unmerged author:@me archived:false",
   involved: "is:open is:pr involves:@me archived:false",
+  merged: "is:pr is:merged author:@me archived:false",
   mine: "is:open is:pr author:@me archived:false",
   review: "is:open is:pr review-requested:@me archived:false",
 };
 
-export const GLOBAL_QUEUES: Queue[] = [
+const REPO_QUEUES: Queue[] = [
+  { id: "all", label: "All" },
+  { id: "mine", label: "Mine" },
+  { id: "review", label: "Review requested" },
+  { id: "merged", label: "Merged" },
+  { id: "closed", label: "Closed" },
+];
+
+const GLOBAL_QUEUES: Queue[] = [
   { id: "mine", label: "Mine" },
   { id: "review", label: "Review requested" },
   { id: "involved", label: "Involved" },
+  { id: "merged", label: "Merged" },
+  { id: "closed", label: "Closed" },
 ];
 
-// the PRs in each queue: one repo's open PRs split by who they involve, or GitHub searches
-export const useQueues = (scope: string, me: string, flash: Flash) => {
+// a section's search, kept to this repo when there is one, and to PRs
+const sectionQuery = (section: Section, scope: string) => {
+  const parts = [section.filter];
+  if (!/\bis:pr\b/u.test(section.filter)) {
+    parts.push("is:pr");
+  }
+  if (scope && !/\brepo:/u.test(section.filter)) {
+    parts.push(`repo:${scope}`);
+  }
+  return parts.join(" ");
+};
+
+const fetchQueues = async (scope: string, sections: Section[]) => {
+  const custom = sections.map((s) => searchPRs(sectionQuery(s, scope)));
+  if (scope) {
+    const [open, merged, closed, ...rest] = await Promise.all([
+      listRepoPRs(scope),
+      listRepoPRs(scope, "MERGED"),
+      listRepoPRs(scope, "CLOSED"),
+      ...custom,
+    ]);
+    return {
+      all: open ?? [],
+      closed: closed ?? [],
+      merged: merged ?? [],
+      ...Object.fromEntries(rest.map((list, i) => [`section-${i}`, list])),
+    };
+  }
+  const lists = await Promise.all([
+    ...GLOBAL_QUEUES.map((q) => searchPRs(GLOBAL_QUERIES[q.id] ?? "")),
+    ...custom,
+  ]);
+  return Object.fromEntries([
+    ...GLOBAL_QUEUES.map((q, i) => [q.id, lists[i] ?? []]),
+    ...sections.map((_, i) => [
+      `section-${i}`,
+      lists[GLOBAL_QUEUES.length + i] ?? [],
+    ]),
+  ]) as Record<string, PR[]>;
+};
+
+// the PRs in each queue: a repo's PRs by state and who they involve, or GitHub searches, plus
+// any sections of your own
+export const useQueues = (
+  scope: string,
+  me: string,
+  flash: Flash,
+  sections: Section[]
+) => {
   const [data, setData] = useState<Record<string, PR[]> | null>(null);
   const [busy, setBusy] = useState(true);
 
   const fetchAll = async () => {
     try {
-      if (scope) {
-        setData({ all: await listRepoPRs(scope) });
-      } else {
-        const lists = await Promise.all(
-          GLOBAL_QUEUES.map((q) => searchPRs(GLOBAL_QUERIES[q.id] ?? ""))
-        );
-        setData(
-          Object.fromEntries(
-            GLOBAL_QUEUES.map((q, i) => [q.id, lists[i] ?? []])
-          )
-        );
-      }
+      setData(await fetchQueues(scope, sections));
     } catch (error) {
       flash(`✗ ${errorMessage(error)}`, C.red);
       setData((d) => d ?? {});
@@ -125,20 +173,30 @@ export const useQueues = (scope: string, me: string, flash: Flash) => {
   if (scope && data) {
     const all = data.all ?? [];
     lists = {
-      all,
+      ...data,
       mine: all.filter((p) => p.author === me),
       review: all.filter((p) => p.reviewRequests.includes(me)),
     };
   }
-  return {
-    busy,
-    lists,
-    queues: scope ? REPO_QUEUES : GLOBAL_QUEUES,
-    refresh,
-  };
+  const queues = [
+    ...(scope ? REPO_QUEUES : GLOBAL_QUEUES),
+    ...sections.map((s, i) => ({ id: `section-${i}`, label: s.title })),
+  ];
+  return { busy, lists, queues, refresh };
 };
 
 export type PendingKind = "merge" | "close";
+
+// what's happening to a PR you've merged or closed: underway (and undoable), then done
+export type Landing = "merging" | "closing" | "merged" | "closed";
+
+export interface Landed {
+  state: Landing;
+  pr: PR;
+  // where it sat, so it keeps its place after a reload drops it from the open list
+  queue: string;
+  index: number;
+}
 
 interface Pending {
   kind: PendingKind;
@@ -162,7 +220,8 @@ const describe = (prs: PR[]) => {
 };
 
 // merge and close wait a few seconds before running, so they can be undone like Superhuman's
-// undo send. Until then the PRs are just hidden, so undo is instant.
+// undo send. The PRs stay where they are, marked as merging or closing and then merged or
+// closed, like on GitHub, until the next manual refresh.
 export const usePendingAction = ({
   method,
   delay,
@@ -177,16 +236,26 @@ export const usePendingAction = ({
 }) => {
   // only read from handlers, so it doesn't need to be state
   const pending = useRef<Pending | null>(null);
-  const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
+  const [landed, setLanded] = useState<ReadonlyMap<string, Landed>>(new Map());
 
-  const setShown = (prs: PR[], shown: boolean) =>
-    setHidden((h) => {
-      const next = new Set(h);
+  const mark = (
+    prs: PR[],
+    state: Landing | null,
+    where?: (pr: PR) => { queue: string; index: number }
+  ) =>
+    setLanded((current) => {
+      const next = new Map(current);
       for (const pr of prs) {
-        if (shown) {
-          next.delete(prKey(pr));
+        const key = prKey(pr);
+        if (state === null) {
+          next.delete(key);
         } else {
-          next.add(prKey(pr));
+          const prior = next.get(key);
+          const place = where?.(pr) ?? {
+            index: prior?.index ?? 0,
+            queue: prior?.queue ?? "",
+          };
+          next.set(key, { ...place, pr, state });
         }
       }
       return next;
@@ -203,12 +272,13 @@ export const usePendingAction = ({
       } else if (first) {
         await closePR(first);
       }
+      mark(p.prs, p.kind === "merge" ? "merged" : "closed");
       flash(
         `✓ ${verb.done} ${describe(p.prs)} ${p.prs[0]?.title ?? ""}`,
         C.green
       );
     } catch (error) {
-      setShown(p.prs, true);
+      mark(p.prs, null);
       flash(`✗ ${describe(p.prs)}: ${errorMessage(error)}`, C.red);
     }
     onSettled();
@@ -217,7 +287,8 @@ export const usePendingAction = ({
   const queue = (
     kind: PendingKind,
     prs: PR[],
-    nativeStack: number | null = null
+    nativeStack: number | null,
+    where: (pr: PR) => { queue: string; index: number }
   ) => {
     // a second action flushes the first immediately
     if (pending.current) {
@@ -231,7 +302,7 @@ export const usePendingAction = ({
       timer: setTimeout(() => run(p), delay * 1000),
     };
     pending.current = p;
-    setShown(prs, false);
+    mark(prs, kind === "merge" ? "merging" : "closing", where);
     const how = kind === "merge" ? ` (${method})` : "";
     flash(
       `${VERBS[kind].doing} ${describe(prs)} in ${delay}s${how} · z to undo`,
@@ -247,7 +318,7 @@ export const usePendingAction = ({
     }
     clearTimeout(p.timer);
     pending.current = null;
-    setShown(p.prs, true);
+    mark(p.prs, null);
     flash(`↶ Undid ${p.kind} of ${describe(p.prs)}`, C.cyan);
   };
 
@@ -260,7 +331,21 @@ export const usePendingAction = ({
     }
   };
 
-  return { flush, hidden, queue, undo };
+  // a manual refresh lets finished merges and closes drop out; ones still underway stay
+  const clearLanded = () =>
+    setLanded(
+      (current) =>
+        new Map(
+          [...current].filter(
+            ([, l]) => l.state === "merging" || l.state === "closing"
+          )
+        )
+    );
+
+  // a reopened PR is open again, whatever happened to it here
+  const forget = (pr: PR) => mark([pr], null);
+
+  return { clearLanded, flush, forget, landed, queue, undo };
 };
 
 const branchKey = (pr: PR) => `${prKey(pr)}:${pr.headRefName}`;

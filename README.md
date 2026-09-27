@@ -26,12 +26,12 @@ Press `?` for every key, or `ctrl+p` to find any action by name.
 
 ## Pull requests
 
-In a repo, the queues are **All**, **Mine**, and **Review requested**. With `--all` they're **Mine**, **Review requested**, and **Involved**, across every repo.
+In a repo, the queues are **All**, **Mine**, **Review requested**, **Merged**, and **Closed**. With `--all` they're **Mine**, **Review requested**, **Involved**, and your **Merged** and **Closed** PRs, across every repo. You can add your own queues as `sections` in the settings.
 
 | key |  |
 | --- | --- |
 | `m` | **merge** (and delete the branch) |
-| `x` | close |
+| `x` | close, or reopen a closed PR |
 | `z` | undo a merge or close that hasn't fired yet |
 | `a` | approve |
 | `R` | review: comment, approve, or request changes, with a message |
@@ -41,11 +41,12 @@ In a repo, the queues are **All**, **Mine**, and **Review requested**. With `--a
 | `c` | checks: every CI check, then a job's steps and log (`n` / `p` jump between errors) |
 | `y` | copy the URL, a markdown link, the branch, or a checkout command |
 | `e` | open in your editor (see below) |
+| `B` | check out the branch in your clone (`gh pr checkout`) |
 | `o` | open in the browser |
 
 The details pane on the right has tabs, switched with `[` / `]` or a click: **Overview** (status, reviewers, stack, description), **Activity** (the conversation), **Commits**, **Checks**, and **Files Changed**. Links in descriptions and comments open in your browser when clicked.
 
-Merges and closes wait a few seconds before running, like Superhuman's undo send, so `z` can take one back. Quitting while one is pending runs it right away. The sidebar shows how far a branch is behind its base; **Update** appears when it is, unless the branch conflicts, which has to be fixed locally.
+Merges and closes wait a few seconds before running, like Superhuman's undo send, so `z` can take one back. Like on GitHub, a merged or closed PR stays where it was, marked **Merging…** then **Merged** (or **Closing…** then **Closed**), until you refresh with `r`. Quitting while one is pending runs it right away. The sidebar shows how far a branch is behind its base; **Update** appears when it is, unless the branch conflicts, which has to be fixed locally.
 
 ## Moving around
 
@@ -53,7 +54,7 @@ Merges and closes wait a few seconds before running, like Superhuman's undo send
 | --------------------- | ------------------------------------------ |
 | `j` / `k`, `gg` / `G` | move, top, bottom                          |
 | `ctrl+d` / `ctrl+u`   | page down / up                             |
-| `tab` / `1`–`3`       | switch queues                              |
+| `tab` / `1`–`9`       | switch queues                              |
 | `/`                   | filter by title, author, branch, or number |
 | `⏎` / `d`             | diff                                       |
 | `p`                   | show or hide the details                   |
@@ -98,7 +99,13 @@ After a squash merge, PRs higher in the stack still carry the original commits a
   // what `e` runs; {{repo}} {{owner}} {{name}} {{number}} {{headRef}} {{baseRef}} {{author}} {{url}} {{repoPath}}
   "editorCommand": "code {{repoPath}}",
 
-  // where your clones are, for {{repoPath}}: an exact repo, an owner's repos, or a pattern
+  // queues of your own: any GitHub search, kept to the repo you're in (is:pr is added for you)
+  "sections": [
+    { "title": "Bugs", "filter": "is:open label:bug" },
+    { "title": "Dependabot", "filter": "is:open author:app/dependabot" },
+  ],
+
+  // where your clones are, for {{repoPath}} and `B`: an exact repo, an owner's repos, or a pattern
   "repoPaths": {
     "useTaiga/siberia": "~/VS/siberia",
     "useTaiga/*": "~/code/useTaiga/*",

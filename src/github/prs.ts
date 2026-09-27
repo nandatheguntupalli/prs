@@ -18,9 +18,14 @@ export interface Review {
   state: string;
 }
 
+export type PRState = "OPEN" | "MERGED" | "CLOSED";
+
 export interface PR {
   // GraphQL node id, for mutations
   id: string;
+  state: PRState;
+  mergedAt: string | null;
+  closedAt: string | null;
   repo: string;
   number: number;
   title: string;
@@ -55,7 +60,7 @@ export interface PR {
 
 const PR_FIELDS = `
   fragment PRFields on PullRequest {
-    id number title createdAt updatedAt headRefName headRefOid baseRefName isDraft authorAssociation
+    id number title state mergedAt closedAt createdAt updatedAt headRefName headRefOid baseRefName isDraft authorAssociation
     reviewDecision mergeable additions deletions changedFiles url body isCrossRepository
     repository { nameWithOwner }
     author { login }
@@ -74,6 +79,9 @@ const PR_FIELDS = `
 
 interface RawPR {
   id: string;
+  state: PRState;
+  mergedAt: string | null;
+  closedAt: string | null;
   authorAssociation: string;
   number: number;
   title: string;
@@ -128,6 +136,7 @@ const toPR = (p: RawPR): PR => {
     body: p.body,
     changedFiles: p.changedFiles,
     checks: rollup ? (CHECK_STATES[rollup.state] ?? "none") : "none",
+    closedAt: p.closedAt,
     comments: p.comments.totalCount,
     createdAt: p.createdAt,
     deletions: p.deletions,
@@ -139,6 +148,7 @@ const toPR = (p: RawPR): PR => {
     isDraft: p.isDraft,
     labels: p.labels.nodes,
     mergeable: p.mergeable,
+    mergedAt: p.mergedAt,
     number: p.number,
     repo: p.repository.nameWithOwner,
     reviewDecision: p.reviewDecision ?? "",
@@ -151,27 +161,33 @@ const toPR = (p: RawPR): PR => {
     })),
     stackNumber: p.stack?.number ?? null,
     stackPosition: p.stackEntry?.position ?? null,
+    state: p.state,
     title: p.title,
     updatedAt: p.updatedAt,
     url: p.url,
   };
 };
 
-// a repo's open PRs, straight from the repo so a just-merged PR never lingers
-export const listRepoPRs = async (repo: string): Promise<PR[]> => {
+// a repo's PRs in one state, straight from the repo (search can lag a merge by a few seconds).
+// Open PRs come newest first; merged and closed ones most recently updated first.
+export const listRepoPRs = async (
+  repo: string,
+  state: PRState = "OPEN"
+): Promise<PR[]> => {
   const octokit = await api();
+  const order = state === "OPEN" ? "CREATED_AT" : "UPDATED_AT";
   const data = await octokit.graphql<{
     repository: { pullRequests: { nodes: RawPR[] } };
   }>(
     `${PR_FIELDS}
-    query ($owner: String!, $repo: String!) {
+    query ($owner: String!, $repo: String!, $state: PullRequestState!, $count: Int!) {
       repository(owner: $owner, name: $repo) {
-        pullRequests(states: OPEN, first: 100, orderBy: { field: CREATED_AT, direction: DESC }) {
+        pullRequests(states: [$state], first: $count, orderBy: { field: ${order}, direction: DESC }) {
           nodes { ...PRFields }
         }
       }
     }`,
-    split(repo)
+    { ...split(repo), count: state === "OPEN" ? 100 : 50, state }
   );
   return data.repository.pullRequests.nodes.map(toPR);
 };
@@ -288,6 +304,18 @@ export const closePR = async (pr: PR) => {
     ...split(pr.repo),
     pull_number: pr.number,
     state: "closed",
+  });
+};
+
+export const reopenPR = async (pr: PR) => {
+  if (dryRun.enabled) {
+    return;
+  }
+  const octokit = await api();
+  await octokit.rest.pulls.update({
+    ...split(pr.repo),
+    pull_number: pr.number,
+    state: "open",
   });
 };
 

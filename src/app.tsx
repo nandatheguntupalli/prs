@@ -20,12 +20,13 @@ import type { Resizing } from "./app-hooks.ts";
 import { helpSections, hintsFor, keymapFor } from "./commands.ts";
 import type { Cmd, Screen } from "./commands.ts";
 import type { Config } from "./config.ts";
-import { saveConfig } from "./config.ts";
+import { repoPath, saveConfig } from "./config.ts";
 import { isErrorLine } from "./github/checks.ts";
 import type { Check } from "./github/checks.ts";
 import { errorMessage, openInBrowser, viewer } from "./github/client.ts";
 import { addComment, reply } from "./github/comments.ts";
 import {
+  reopenPR,
   setDraft,
   setLabels,
   submitReview,
@@ -35,7 +36,12 @@ import type { MergeMethod, PR, UpdateMethod } from "./github/prs.ts";
 import { useBehind, useLoader, usePendingAction, useQueues } from "./hooks.ts";
 import type { PendingKind } from "./hooks.ts";
 import type { PaneSizes } from "./layout.ts";
-import { copyText, editorCommand, runInTerminal } from "./local.ts";
+import {
+  checkoutBranch,
+  copyText,
+  editorCommand,
+  runInTerminal,
+} from "./local.ts";
 import { mergePlan, prKey } from "./stacks.ts";
 import type { StackPlace } from "./stacks.ts";
 import { C } from "./theme.ts";
@@ -63,6 +69,8 @@ import { PRTable, pageSize } from "./ui/pr-list.tsx";
 import { BOLD, Centered } from "./ui/primitives.tsx";
 import { DETAIL_TABS, Sidebar } from "./ui/sidebar.tsx";
 import type { DetailTab, PRActions } from "./ui/sidebar.tsx";
+import { isOpen, statusLook, statusOf } from "./ui/status.ts";
+import type { Status } from "./ui/status.ts";
 
 type ModalState =
   | { kind: "palette" }
@@ -146,6 +154,7 @@ interface ListProps {
   prs: PR[] | null;
   list: PR[];
   places: Map<string, StackPlace>;
+  statusOf: (pr: PR) => Status;
   pr: PR | undefined;
   cursor: number;
   handleSelectPR: (i: number) => void;
@@ -174,6 +183,7 @@ const ListScreen = (p: ListProps) => {
         <PRTable
           list={p.list}
           places={p.places}
+          statusOf={p.statusOf}
           cursor={p.cursor}
           focused
           width={paneW - sideW - (p.sidebar ? 1 : 0)}
@@ -192,6 +202,7 @@ const ListScreen = (p: ListProps) => {
       {showSidebar && p.pr ? (
         <Sidebar
           pr={p.pr}
+          status={p.statusOf(p.pr)}
           width={sideW}
           behind={p.behind}
           stack={p.places.get(prKey(p.pr))}
@@ -373,7 +384,8 @@ export const App = ({
   const { busy, lists, queues, refresh } = useQueues(
     scope,
     me.value ?? "",
-    flash
+    flash,
+    config.sections ?? []
   );
   const [settled, setSettled] = useState(0);
   const pending = usePendingAction({
@@ -410,7 +422,7 @@ export const App = ({
   const { list, places, pr, source } = useSelection({
     cursor,
     filter,
-    hidden: pending.hidden,
+    landed: pending.landed,
     lists,
     scope,
     tab,
@@ -439,6 +451,19 @@ export const App = ({
   // ── actions ───────────────────────────────────────────────────────────
   const withPR = (fn: (p: PR) => unknown) => () =>
     pr ? fn(pr) : flash("No pull request selected", C.dim);
+  const statusFor = (p: PR) => statusOf(p, pending.landed);
+  // merging, approving and the like only make sense while a PR is open
+  const stillOpen = (p: PR) => {
+    const status = statusFor(p);
+    if (!isOpen(status)) {
+      flash(`#${p.number} is ${statusLook(status).label.toLowerCase()}`, C.dim);
+    }
+    return isOpen(status);
+  };
+  const whenOpen =
+    <A extends unknown[]>(fn: (p: PR, ...rest: A) => unknown) =>
+    (p: PR, ...rest: A) =>
+      stillOpen(p) && fn(p, ...rest);
   const onPRs = withPR;
 
   const attempt = async (
@@ -456,16 +481,60 @@ export const App = ({
     }
   };
 
+  // where a PR sits in this queue, so it keeps that place once merged or closed
+  const placeOf = (p: PR) => ({
+    index: Math.max(
+      0,
+      source.findIndex((s) => prKey(s) === prKey(p))
+    ),
+    queue: tab,
+  });
+
   // merging a stacked PR takes everything below it with it, like `gh stack merge`
-  const queue = (kind: PendingKind, target: PR) => {
+  const queue = whenOpen((target: PR, kind: PendingKind = "merge") => {
     const plan = kind === "merge" ? mergePlan(target, places) : [target];
     const native =
       kind === "merge"
         ? (places.get(prKey(target))?.stack.native ?? null)
         : null;
-    pending.queue(kind, plan, native);
-    setCursor((c) => Math.max(0, Math.min(c, list.length - plan.length - 1)));
+    pending.queue(kind, plan, native, placeOf);
+    // it stays listed, so move on to the next one
+    setCursor((c) => Math.min(c + 1, list.length - 1));
     setScreen("list");
+  });
+  const mergeIt = (p: PR) => queue(p, "merge");
+
+  const reopen = (p: PR) =>
+    attempt(`Reopening #${p.number}`, `Reopened #${p.number}`, async () => {
+      await reopenPR(p);
+      pending.forget(p);
+    });
+
+  // x closes an open PR and reopens a closed one
+  const closeOrReopen = (p: PR) =>
+    statusFor(p) === "closed" ? reopen(p) : queue(p, "close");
+
+  const checkout = async (target: PR) => {
+    const dir =
+      repoPath(config, target.repo) ?? (scope === target.repo ? local : null);
+    if (!dir) {
+      flash(
+        `No clone of ${target.repo}; add it to repoPaths in ~/.config/prs/config.json`,
+        C.yellow
+      );
+      return;
+    }
+    if (dryRun) {
+      flash(`Would check out ${target.headRefName} in ${dir}`, C.dim);
+      return;
+    }
+    flash(`Checking out ${target.headRefName}…`, C.yellow);
+    try {
+      await checkoutBranch(target, dir);
+      flash(`✓ On ${target.headRefName} in ${dir}`, C.green);
+    } catch (error) {
+      flash(`✗ ${errorMessage(error)}`, C.red);
+    }
   };
 
   const update = (target: PR) => {
@@ -534,11 +603,11 @@ export const App = ({
     );
 
   const prActions: PRActions = {
-    handleApprove: withPR(approve),
-    handleClose: withPR((p) => queue("close", p)),
-    handleMerge: withPR((p) => queue("merge", p)),
+    handleApprove: withPR(whenOpen(approve)),
+    handleClose: withPR(closeOrReopen),
+    handleMerge: withPR(mergeIt),
     handleOpen: withPR((p) => openInBrowser(p.url)),
-    handleUpdate: withPR(update),
+    handleUpdate: withPR(whenOpen(update)),
   };
 
   // ── moving around ─────────────────────────────────────────────────────
@@ -662,14 +731,15 @@ export const App = ({
 
   const half = Math.floor(height / 2);
   const commands = buildCommands({
-    approve,
+    approve: whenOpen(approve),
     back,
     bottom: () => setCursor(list.length - 1),
+    checkout,
     checks: () => {
       setChecksCursor(0);
       setScreen("checks");
     },
-    close: (p) => queue("close", p),
+    close: closeOrReopen,
     comment,
     copy: (p) => setModal({ kind: "copy", pr: p }),
     cycleQueue,
@@ -681,7 +751,7 @@ export const App = ({
     half,
     help: () => setModal({ kind: "help" }),
     labels: (p) => setModal({ kind: "labels", pr: p }),
-    merge: (p) => queue("merge", p),
+    merge: mergeIt,
     move,
     moveChecks: (n) =>
       setChecksCursor((c) =>
@@ -722,6 +792,8 @@ export const App = ({
     queues,
     quit: () => (screen === "list" ? quit() : back()),
     refresh: () => {
+      // merged and closed PRs stay listed until now
+      pending.clearLanded();
       refresh();
       threads.reload();
       checks.reload();
@@ -732,12 +804,12 @@ export const App = ({
     showQueue,
     sizes: panes.sizes,
     theme: () => setModal({ kind: "theme" }),
-    toggleDraft,
+    toggleDraft: whenOpen(toggleDraft),
     toggleRange: () => setRangeStart((r) => (r === null ? diffCursor : null)),
     toggleSidebar: () => setSidebar((s) => !s),
     top: () => setCursor(0),
     undo: pending.undo,
-    update,
+    update: whenOpen(update),
   });
 
   // ── keys ──────────────────────────────────────────────────────────────
@@ -820,6 +892,7 @@ export const App = ({
         prs={lists ? source : null}
         list={list}
         places={places}
+        statusOf={statusFor}
         pr={pr}
         cursor={Math.min(cursor, Math.max(0, list.length - 1))}
         handleSelectPR={setCursor}
@@ -838,9 +911,6 @@ export const App = ({
       />
     );
   };
-
-  const counted = (id: string) =>
-    lists?.[id]?.filter((p) => !pending.hidden.has(prKey(p))).length;
 
   return (
     <box
@@ -869,7 +939,7 @@ export const App = ({
       {screen === "list" ? (
         <TabBar
           tabs={queues.map((q) => ({
-            count: counted(q.id),
+            count: lists?.[q.id]?.length,
             id: q.id,
             label: q.label,
           }))}
