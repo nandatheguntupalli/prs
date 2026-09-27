@@ -19,6 +19,7 @@ const pr = (
   deletions: 0,
   headOwner: "o",
   headRefName: head,
+  id: `PR_${number}`,
   isCrossRepository: false,
   isDraft: false,
   mergeable: "MERGEABLE",

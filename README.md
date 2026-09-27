@@ -15,7 +15,8 @@ Talks to GitHub directly through its API. It signs in with the [`gh` CLI](https:
 ```sh
 prs                   # open PRs for the repo in the current directory
 prs owner/repo        # or any repo
-prs --method rebase   # squash (default), merge, or rebase
+prs --method squash   # merge (default), squash, or rebase
+prs --update merge    # how Update brings a branch up to date: rebase (default) or merge
 prs --delay 2         # seconds before a merge fires (default 4)
 prs --dry-run         # nothing is merged or approved
 prs --text-graph      # draw the graph with characters, even if the terminal can show images
@@ -28,7 +29,7 @@ prs --text-graph      # draw the graph with characters, even if the terminal can
 | `m` | **merge** (and delete branch) | merge |
 | `x` | close | close |
 | `z` | undo a pending merge or close | undo |
-| `u` | update branch (merge the base branch in) | page up |
+| `u` | update branch (rebases onto the base; `--update merge` merges it in) | page up |
 | `a` | approve | approve |
 | `o` | open in browser | open in browser |
 | `tab` / `1`–`3` | switch between All, Mine, Review requested |  |

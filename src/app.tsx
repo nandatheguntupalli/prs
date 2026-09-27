@@ -13,7 +13,7 @@ import {
   updateBranch,
   viewer,
 } from "./gh.ts";
-import type { MergeMethod, PR } from "./gh.ts";
+import type { MergeMethod, PR, UpdateMethod } from "./gh.ts";
 import { showCommit } from "./git.ts";
 import type { Source } from "./git.ts";
 import { GraphView, useCellPixels, useGraph } from "./graph-view.tsx";
@@ -345,11 +345,13 @@ const Header = ({
   busy,
   dryRun,
   method,
+  updateMethod,
 }: {
   repo: string;
   busy: boolean;
   dryRun: boolean;
   method: MergeMethod;
+  updateMethod: UpdateMethod;
 }) => (
   <box
     flexDirection="row"
@@ -367,7 +369,7 @@ const Header = ({
     </text>
     <text fg={C.dim}>
       {dryRun ? <span fg={C.yellow}>dry run · </span> : null}
-      {method}
+      {method} · update {updateMethod}
     </text>
   </box>
 );
@@ -817,6 +819,7 @@ export const App = ({
   repo,
   local,
   method,
+  updateMethod,
   delay,
   dryRun,
   textGraph,
@@ -829,6 +832,7 @@ export const App = ({
   // draw the graph with characters even when the terminal can show images
   textGraph: boolean;
   method: MergeMethod;
+  updateMethod: UpdateMethod;
   delay: number;
   dryRun: boolean;
   onQuit: () => void;
@@ -976,9 +980,10 @@ export const App = ({
   };
 
   const doUpdate = async (target: PR) => {
-    flash(`Updating #${target.number} with ${target.baseRefName}…`, C.yellow);
+    const how = updateMethod === "rebase" ? "Rebasing" : "Updating";
+    flash(`${how} #${target.number} onto ${target.baseRefName}…`, C.yellow);
     try {
-      await updateBranch(repo, target.number);
+      await updateBranch(target, updateMethod);
       markUpToDate(target);
       flash(`✓ Updated #${target.number} with ${target.baseRefName}`, C.green);
       refresh();
@@ -1191,7 +1196,13 @@ export const App = ({
       onMouseDrag={(event) => dragTo(event.x)}
       onMouseUp={() => setResizing(null)}
     >
-      <Header repo={repo} busy={busy} dryRun={dryRun} method={method} />
+      <Header
+        repo={repo}
+        busy={busy}
+        dryRun={dryRun}
+        method={method}
+        updateMethod={updateMethod}
+      />
       <TabBar tab={tab} counts={counts} onSelect={selectTab} />
       <box flexGrow={1} flexDirection="column" marginTop={1}>
         {main}

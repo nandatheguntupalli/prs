@@ -2,8 +2,11 @@ import { Octokit } from "@octokit/rest";
 
 export type Checks = "pass" | "fail" | "pending" | "none";
 export type MergeMethod = "squash" | "merge" | "rebase";
+export type UpdateMethod = "merge" | "rebase";
 
 export interface PR {
+  // GraphQL node id, for mutations
+  id: string;
   number: number;
   title: string;
   author: string;
@@ -137,7 +140,7 @@ const LIST_QUERY = `
     repository(owner: $owner, name: $repo) {
       pullRequests(states: OPEN, first: 100, orderBy: { field: CREATED_AT, direction: DESC }) {
         nodes {
-          number title createdAt headRefName baseRefName isDraft reviewDecision mergeable
+          id number title createdAt headRefName baseRefName isDraft reviewDecision mergeable
           additions deletions changedFiles url body isCrossRepository
           author { login }
           headRepositoryOwner { login }
@@ -326,12 +329,22 @@ export const closePR = async (repo: string, n: number) => {
   }
 };
 
-// merges the base branch into the PR branch, like GitHub's "Update branch" button
-export const updateBranch = async (repo: string, n: number) => {
-  if (!dryRun.enabled) {
-    const octokit = await api();
-    await octokit.rest.pulls.updateBranch({ ...split(repo), pull_number: n });
+// brings the PR branch up to date with its base, like GitHub's "Update branch" button:
+// rebasing it onto the base, or merging the base in
+export const updateBranch = async (pr: PR, method: UpdateMethod) => {
+  if (dryRun.enabled) {
+    return;
   }
+  const octokit = await api();
+  await octokit.graphql(
+    // "method" is reserved by Octokit for the HTTP method, so the variable can't use that name
+    `mutation ($id: ID!, $updateMethod: PullRequestBranchUpdateMethod!) {
+      updatePullRequestBranch(input: { pullRequestId: $id, updateMethod: $updateMethod }) {
+        pullRequest { number }
+      }
+    }`,
+    { id: pr.id, updateMethod: method.toUpperCase() }
+  );
 };
 
 // how many commits the base branch has that the PR branch doesn't

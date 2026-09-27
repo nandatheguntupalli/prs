@@ -7,7 +7,7 @@ import { createRoot } from "@opentui/react";
 import pkg from "../package.json";
 import { App } from "./app.tsx";
 import { currentRepo, dryRun } from "./gh.ts";
-import type { MergeMethod } from "./gh.ts";
+import type { MergeMethod, UpdateMethod } from "./gh.ts";
 import { localCheckout } from "./git.ts";
 import { loadSizes } from "./layout.ts";
 
@@ -18,8 +18,9 @@ const { values, positionals } = parseArgs({
     delay: { default: "4", short: "d", type: "string" },
     "dry-run": { type: "boolean" },
     help: { short: "h", type: "boolean" },
-    method: { default: "squash", short: "m", type: "string" },
+    method: { default: "merge", short: "m", type: "string" },
     "text-graph": { type: "boolean" },
+    update: { default: "rebase", short: "u", type: "string" },
     version: { short: "v", type: "boolean" },
   },
 });
@@ -30,7 +31,7 @@ if (values.version) {
 }
 
 if (values.help) {
-  console.log(`prs [owner/repo] [--method squash|merge|rebase] [--delay seconds] [--dry-run] [--text-graph]
+  console.log(`prs [owner/repo] [--method merge|squash|rebase] [--update rebase|merge] [--delay seconds] [--dry-run] [--text-graph]
 
 Keyboard-first PR inbox. Defaults to the repo in the current directory.`);
   process.exit(0);
@@ -39,6 +40,12 @@ Keyboard-first PR inbox. Defaults to the repo in the current directory.`);
 const method = values.method as MergeMethod;
 if (!["squash", "merge", "rebase"].includes(method)) {
   console.error(`Unknown merge method: ${method}`);
+  process.exit(1);
+}
+
+const updateMethod = values.update as UpdateMethod;
+if (!["rebase", "merge"].includes(updateMethod)) {
+  console.error(`Unknown update method: ${updateMethod}`);
   process.exit(1);
 }
 
@@ -75,6 +82,7 @@ createRoot(renderer).render(
     textGraph={Boolean(values["text-graph"])}
     initialSizes={initialSizes}
     method={method}
+    updateMethod={updateMethod}
     delay={Number(values.delay)}
     dryRun={dryRun.enabled}
     onQuit={quit}
