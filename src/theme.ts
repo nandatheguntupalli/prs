@@ -30,8 +30,8 @@ export const THEMES: Record<ThemeName, { label: string; palette: Palette }> = {
   graphite: {
     label: "Graphite",
     palette: {
-      accent: "#8ab4f8",
-      accentSoft: "#26324a",
+      accent: "#5eead4",
+      accentSoft: "#173b38",
       addBg: "#1a2e22",
       bg: "#17181c",
       blue: "#8ab4f8",
@@ -52,8 +52,8 @@ export const THEMES: Record<ThemeName, { label: string; palette: Palette }> = {
   midnight: {
     label: "Midnight",
     palette: {
-      accent: "#a78bfa",
-      accentSoft: "#2a2345",
+      accent: "#2dd4bf",
+      accentSoft: "#0f3b36",
       addBg: "#0f2a1a",
       bg: "#000000",
       blue: "#60a5fa",
@@ -96,8 +96,8 @@ export const THEMES: Record<ThemeName, { label: string; palette: Palette }> = {
   paper: {
     label: "Paper",
     palette: {
-      accent: "#6d28d9",
-      accentSoft: "#ede9fe",
+      accent: "#0f766e",
+      accentSoft: "#ccfbf1",
       addBg: "#dcfce7",
       bg: "#fbfbfa",
       blue: "#1d4ed8",
@@ -118,8 +118,8 @@ export const THEMES: Record<ThemeName, { label: string; palette: Palette }> = {
   tokyo: {
     label: "Tokyo Night",
     palette: {
-      accent: "#bb9af7",
-      accentSoft: "#2e2a4a",
+      accent: "#73daca",
+      accentSoft: "#1d3b3a",
       addBg: "#1f2d2a",
       bg: "#1a1b26",
       blue: "#7aa2f7",
