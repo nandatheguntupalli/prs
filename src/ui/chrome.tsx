@@ -1,7 +1,13 @@
 import type { MergeMethod, PR, UpdateMethod } from "../github/prs.ts";
 import { C } from "../theme.ts";
 import { fit } from "./format.ts";
-import { BOLD, KeyHint, Spinner } from "./primitives.tsx";
+import { ICONS } from "./icons.ts";
+import type { Action } from "./keys.ts";
+import { BOLD, Button, KeyHint, Spinner } from "./primitives.tsx";
+
+// github.com/pulls when looking across every repo
+export const pullsUrl = (scope: string) =>
+  scope ? `https://github.com/${scope}/pulls` : "https://github.com/pulls";
 
 export const Header = ({
   scope,
@@ -9,6 +15,7 @@ export const Header = ({
   dryRun,
   method,
   updateMethod,
+  onOpenPulls,
 }: {
   // empty when looking across every repo
   scope: string;
@@ -16,47 +23,57 @@ export const Header = ({
   dryRun: boolean;
   method: MergeMethod;
   updateMethod: UpdateMethod;
+  onOpenPulls: Action;
 }) => {
   const [owner, name] = scope.split("/");
   return (
     <box
       flexDirection="row"
       justifyContent="space-between"
-      height={1}
-      paddingLeft={1}
-      paddingRight={1}
+      height={3}
+      flexShrink={0}
+      backgroundColor={C.panel}
+      paddingTop={1}
+      paddingBottom={1}
+      paddingLeft={2}
+      paddingRight={2}
     >
       <text wrapMode="none">
-        <span fg={C.accent} attributes={BOLD}>
-          ◆ prs
-        </span>
-        <span fg={C.faint}>{"  "}</span>
+        <span fg={C.text}>{`${ICONS.github}  `}</span>
         {scope ? (
-          <span>
+          <a href={`https://github.com/${scope}`}>
             <span fg={C.dim}>{`${owner} / `}</span>
             <span fg={C.text} attributes={BOLD}>
               {name}
             </span>
-          </span>
+          </a>
         ) : (
           <span fg={C.text} attributes={BOLD}>
             All repos
           </span>
         )}
+        <span fg={C.faint}>{"   ◆ prs"}</span>
         {busy ? <span fg={C.faint}>{"  "}</span> : null}
         {busy ? <Spinner /> : null}
       </text>
-      <text wrapMode="none">
-        {dryRun ? (
-          <span fg={C.bg} bg={C.yellow} attributes={BOLD}>
-            {" DRY RUN "}
-          </span>
-        ) : null}
-        <span fg={C.faint}>{"  m "}</span>
-        <span fg={C.dim}>{method}</span>
-        <span fg={C.faint}>{" · u "}</span>
-        <span fg={C.dim}>{updateMethod}</span>
-      </text>
+      <box flexDirection="row" gap={2}>
+        <text wrapMode="none">
+          {dryRun ? (
+            <span fg={C.bg} bg={C.yellow} attributes={BOLD}>
+              {" DRY RUN "}
+            </span>
+          ) : null}
+          <span fg={C.faint}>{dryRun ? "  m " : "m "}</span>
+          <span fg={C.dim}>{method}</span>
+          <span fg={C.faint}>{" · u "}</span>
+          <span fg={C.dim}>{updateMethod}</span>
+        </text>
+        <Button
+          label="Pull requests ↗"
+          color={C.accent}
+          onPress={onOpenPulls}
+        />
+      </box>
     </box>
   );
 };

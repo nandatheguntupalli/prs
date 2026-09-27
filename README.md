@@ -73,6 +73,7 @@ Merges and closes wait a few seconds before they go through, and `z` cancels the
 | `e` | open in editor   |
 | `B` | check out branch |
 | `o` | open in browser  |
+| `O` | repo's PR page   |
 
 </td><td>
 

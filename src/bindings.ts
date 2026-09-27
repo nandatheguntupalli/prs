@@ -24,6 +24,7 @@ export interface CommandContext {
   checkout: (p: PR) => unknown;
   undo: () => unknown;
   open: () => unknown;
+  openPulls: () => unknown;
   move: (n: number) => unknown;
   top: () => unknown;
   bottom: () => unknown;
@@ -168,6 +169,14 @@ export const buildCommands = (x: CommandContext): Cmd[] => {
       keys: ["o"],
       label: "Open in browser",
       run: x.open,
+      screens: ALL,
+      section: prs,
+    },
+    {
+      id: "open-pulls",
+      keys: ["O"],
+      label: "Open the repo's pull requests",
+      run: x.openPulls,
       screens: ALL,
       section: prs,
     },
