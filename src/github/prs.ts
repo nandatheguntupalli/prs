@@ -9,7 +9,6 @@ export type ReviewEvent = "COMMENT" | "APPROVE" | "REQUEST_CHANGES";
 
 export interface Label {
   name: string;
-  // hex without the #
   color: string;
 }
 
@@ -21,7 +20,6 @@ export interface Review {
 export type PRState = "OPEN" | "MERGED" | "CLOSED";
 
 export interface PR {
-  // GraphQL node id, for mutations
   id: string;
   state: PRState;
   mergedAt: string | null;
@@ -30,7 +28,6 @@ export interface PR {
   number: number;
   title: string;
   author: string;
-  // how the author relates to the repo: MEMBER, CONTRIBUTOR, OWNER, …
   authorAssociation: string;
   createdAt: string;
   updatedAt: string;
@@ -51,9 +48,8 @@ export interface PR {
   reviews: Review[];
   reviewRequests: string[];
   headOwner: string;
-  // the branch lives in a fork, so merging shouldn't try to delete it
+  // fork branches can't be deleted after merge
   isCrossRepository: boolean;
-  // set when the PR is part of one of GitHub's native stacks
   stackNumber: number | null;
   stackPosition: number | null;
 }
@@ -117,7 +113,6 @@ interface RawPR {
   };
 }
 
-// GitHub's combined state for all of the head commit's checks and statuses
 const CHECK_STATES: Record<string, Checks> = {
   ERROR: "fail",
   EXPECTED: "pending",
@@ -168,8 +163,7 @@ const toPR = (p: RawPR): PR => {
   };
 };
 
-// a repo's PRs in one state, straight from the repo (search can lag a merge by a few seconds).
-// Open PRs come newest first; merged and closed ones most recently updated first.
+// Listed from the repo rather than search, since search can lag a merge by a few seconds.
 export const listRepoPRs = async (
   repo: string,
   state: PRState = "OPEN"
@@ -192,7 +186,6 @@ export const listRepoPRs = async (
   return data.repository.pullRequests.nodes.map(toPR);
 };
 
-// PRs across every repo, for GitHub search queries like "is:open is:pr author:@me"
 export const searchPRs = async (query: string): Promise<PR[]> => {
   const octokit = await api();
   const data = await octokit.graphql<{
@@ -216,12 +209,10 @@ export const getDiff = async (pr: PR) => {
     mediaType: { format: "diff" },
     pull_number: pr.number,
   });
-  // with the diff media type the body is the raw diff text
   return data as unknown as string;
 };
 
-// merges one PR into its base, then deletes its branch like `gh pr merge --delete-branch`,
-// first pointing any open PRs stacked on that branch at the base instead
+// Retarget anything stacked on this branch before deleting it, or GitHub closes those PRs.
 const mergeOne = async (octokit: Octokit, pr: PR, method: MergeMethod) => {
   await octokit.rest.pulls.merge({
     ...split(pr.repo),
@@ -251,13 +242,12 @@ const mergeOne = async (octokit: Octokit, pr: PR, method: MergeMethod) => {
       ref: `heads/${pr.headRefName}`,
     });
   } catch {
-    // already gone: the repo deletes head branches on merge, or someone beat us to it
+    // already deleted by the repo's auto-delete setting
   }
 };
 
-// merges a PR and everything below it in its stack; `plan` is top first, ending at the bottom.
-// A native GitHub stack has to go through gh-stack. A plain chain merges top-down, each PR into
-// its parent's branch, so the bottom lands in the trunk carrying the rest with no re-applied commits.
+// `plan` is top first. Native stacks have to go through gh-stack. Plain chains merge top-down,
+// so the bottom lands in the trunk carrying the rest without re-applying commits.
 export const merge = async (
   plan: PR[],
   method: MergeMethod,
@@ -268,7 +258,7 @@ export const merge = async (
     return;
   }
   if (nativeStack !== null) {
-    // gh extensions take the repo from GH_REPO rather than a flag
+    // gh extensions read the repo from GH_REPO, not a flag
     await run(
       ["gh", "stack", "merge", String(top.number), "--yes", `--${method}`],
       { GH_REPO: top.repo }
@@ -319,15 +309,13 @@ export const reopenPR = async (pr: PR) => {
   });
 };
 
-// brings the PR branch up to date with its base, like GitHub's "Update branch" button:
-// rebasing it onto the base, or merging the base in
 export const updateBranch = async (pr: PR, method: UpdateMethod) => {
   if (dryRun.enabled) {
     return;
   }
   const octokit = await api();
   await octokit.graphql(
-    // "method" is reserved by Octokit for the HTTP method, so the variable can't use that name
+    // Octokit reserves "method" for the HTTP method
     `mutation ($id: ID!, $updateMethod: PullRequestBranchUpdateMethod!) {
       updatePullRequestBranch(input: { pullRequestId: $id, updateMethod: $updateMethod }) {
         pullRequest { number }
@@ -337,7 +325,6 @@ export const updateBranch = async (pr: PR, method: UpdateMethod) => {
   );
 };
 
-// flips a PR between draft and ready for review
 export const setDraft = async (pr: PR, draft: boolean) => {
   if (dryRun.enabled) {
     return;
@@ -352,14 +339,12 @@ export const setDraft = async (pr: PR, draft: boolean) => {
   );
 };
 
-// how many commits the base branch has that the PR branch doesn't
 export const behindBy = async (pr: PR): Promise<number> => {
   const head = `${pr.headOwner || split(pr.repo).owner}:${pr.headRefName}`;
   const octokit = await api();
   const { data } = await octokit.rest.repos.compareCommitsWithBasehead({
     ...split(pr.repo),
     basehead: `${pr.baseRefName}...${head}`,
-    // only the counts matter, so skip the commit list
     per_page: 1,
   });
   return data.behind_by;

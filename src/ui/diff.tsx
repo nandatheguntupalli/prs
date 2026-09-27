@@ -1,11 +1,11 @@
 import type { ReactNode } from "react";
 
 import { C } from "../theme.ts";
-import type { Row } from "./diff-model.ts";
-import { age, fit } from "./format.ts";
+import type { ParsedDiff, Row } from "./diff-model.ts";
+import { age, fit, plural } from "./format.ts";
 import { BOLD } from "./primitives.tsx";
 
-// old and new line numbers, then the +/- sign
+// old line, new line, sign
 const GUTTER = 11;
 
 const num = (n: number | null) => (n === null ? "" : String(n)).padStart(4);
@@ -117,14 +117,12 @@ export const DiffView = ({
   subtitle: string;
   rows: Row[];
   cursor: number;
-  // where a `v` range selection started, if one is in progress
   rangeStart: number | null;
   width: number;
   height: number;
   loading: boolean;
 }) => {
   const bodyH = height - 2;
-  // keep the cursor roughly centered once the diff is taller than the screen
   const start = Math.max(
     0,
     Math.min(cursor - Math.floor(bodyH / 2), rows.length - bodyH)
@@ -159,7 +157,6 @@ export const DiffView = ({
   );
 };
 
-// where the next or previous row matching `test` is, for ] [ n p
 export const jump = (
   rows: Row[],
   from: number,
@@ -175,7 +172,6 @@ export const jump = (
   return from;
 };
 
-// which file the cursor is in, for the subtitle
 export const fileAt = (rows: Row[], at: number) => {
   for (let i = Math.min(at, rows.length - 1); i >= 0; i -= 1) {
     const row = rows[i];
@@ -185,3 +181,18 @@ export const fileAt = (rows: Row[], at: number) => {
   }
   return "";
 };
+
+export const diffSubtitle = (
+  diff: ParsedDiff | null,
+  threadCount: number,
+  where: string,
+  selecting: boolean
+) =>
+  [
+    plural(diff?.files.length ?? 0, "file"),
+    threadCount ? plural(threadCount, "comment thread") : "",
+    where ? fit(where, 60) : "",
+    selecting ? "selecting lines, ⏎ to comment" : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");

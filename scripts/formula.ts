@@ -1,4 +1,3 @@
-// Renders the Homebrew formula for a release, given the sha256 of each target's tarball
 export const TARGETS = [
   "darwin-arm64",
   "darwin-x64",

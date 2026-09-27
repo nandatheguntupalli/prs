@@ -1,5 +1,3 @@
-// Things that happen on this machine rather than on GitHub: the clipboard and the editor.
-
 import type { CliRenderer } from "@opentui/core";
 
 import { repoPath } from "./config.ts";
@@ -7,7 +5,6 @@ import type { Config } from "./config.ts";
 import { run } from "./github/client.ts";
 import type { PR } from "./github/prs.ts";
 
-// the working copy we were started in, for opening it in an editor
 export const localCheckout = async (): Promise<string | null> => {
   try {
     const out = await run(["git", "rev-parse", "--show-toplevel"]);
@@ -23,8 +20,7 @@ const CLIPBOARD_TOOLS = [
   ["xclip", "-selection", "clipboard"],
 ];
 
-// the system clipboard when there's a tool for it, else the terminal's own (OSC 52, which also
-// works over SSH)
+// fall back to OSC 52, which also works over SSH
 export const copyText = async (renderer: CliRenderer, text: string) => {
   for (const cmd of CLIPBOARD_TOOLS) {
     try {
@@ -41,7 +37,7 @@ export const copyText = async (renderer: CliRenderer, text: string) => {
         return true;
       }
     } catch {
-      // not installed; try the next one
+      // not installed
     }
   }
   return renderer.copyToClipboardOSC52(text);
@@ -53,7 +49,6 @@ const fill = (template: string, values: Record<string, string>) =>
     (_, key: string) => values[key] ?? ""
   );
 
-// the shell command `e` runs for a PR: the configured template, or $VISUAL / $EDITOR on the clone
 export const editorCommand = (
   config: Config,
   pr: PR,
@@ -81,7 +76,6 @@ export const editorCommand = (
   return `${editor} ${JSON.stringify(path)}`;
 };
 
-// hands the terminal to a command and takes it back when the command exits
 export const runInTerminal = async (renderer: CliRenderer, command: string) => {
   renderer.suspend();
   try {
@@ -96,7 +90,7 @@ export const runInTerminal = async (renderer: CliRenderer, command: string) => {
   }
 };
 
-// checks the PR's branch out in its local clone with `gh pr checkout`, which also handles forks
+// gh pr checkout handles branches from forks
 export const checkoutBranch = async (pr: PR, dir: string) => {
   await run(
     ["gh", "pr", "checkout", String(pr.number), "-R", pr.repo],

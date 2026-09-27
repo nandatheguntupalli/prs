@@ -7,8 +7,8 @@ import { createRoot } from "@opentui/react";
 import pkg from "../package.json";
 import { App } from "./app.tsx";
 import { loadConfig } from "./config.ts";
-import { currentRepo, dryRun } from "./gh.ts";
-import type { MergeMethod, UpdateMethod } from "./gh.ts";
+import { currentRepo, dryRun } from "./github/client.ts";
+import type { MergeMethod, UpdateMethod } from "./github/prs.ts";
 import { loadSizes } from "./layout.ts";
 import { localCheckout } from "./local.ts";
 import { setIconStyle } from "./ui/icons.ts";
@@ -52,10 +52,8 @@ if (!["rebase", "merge"].includes(updateMethod)) {
   process.exit(1);
 }
 
-// the repo this directory is a clone of, if any; `e` can open that clone in an editor
 const here = await currentRepo().catch(() => "");
 
-// one repo, or "" for every repo you're involved in
 const scope = values.all ? "" : (positionals[0] ?? here);
 
 dryRun.enabled = !!values["dry-run"];

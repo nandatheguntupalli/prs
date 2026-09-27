@@ -1,5 +1,3 @@
-// Turns a unified diff (and any review threads on it) into the rows the diff view draws.
-
 import type { Side, Thread } from "../github/comments.ts";
 
 export type Row =
@@ -17,9 +15,8 @@ export type Row =
   | {
       kind: "comment";
       thread: Thread;
-      // each comment is a heading row (author, age), then its body rows
       part: "head" | "body";
-      // the thread's very first row, where n / p land
+      // first row of the thread; n and p jump here
       first: boolean;
       text: string;
       author: string;
@@ -33,14 +30,12 @@ export interface ParsedDiff {
 }
 
 const pathOf = (header: string) => {
-  // "diff --git a/src/x.ts b/src/x.ts" → "src/x.ts"
   const match = / b\/(?<path>.+)$/u.exec(header);
   return match?.groups?.path ?? header;
 };
 
 const HUNK = /^@@ -(?<old>\d+)(?:,\d+)? \+(?<new>\d+)(?:,\d+)? @@/u;
 
-// the lines that come before a file's first hunk and aren't worth showing
 const NOISE =
   /^(?:index |--- |\+\+\+ |similarity index|rename from|rename to|new file mode|deleted file mode|old mode|new mode)/u;
 
@@ -69,7 +64,7 @@ export const parseDiff = (text: string): ParsedDiff => {
       continue;
     }
     if (!file || NOISE.test(raw)) {
-      // before the first file, a commit diff has its message; keep that, drop the rest
+      // a commit diff starts with its message; keep it
       if (!file) {
         rows.push({ kind: "meta", text: raw });
       }
@@ -113,7 +108,6 @@ export const parseDiff = (text: string): ParsedDiff => {
       rows.push({ kind: "meta", text: raw });
     }
   }
-  // keep the header counts in step with what was tallied
   for (const row of rows) {
     if (row.kind === "file") {
       const f = files.find((x) => x.path === row.path);
@@ -124,7 +118,6 @@ export const parseDiff = (text: string): ParsedDiff => {
   return { files, rows };
 };
 
-// the line a comment is anchored on: the new version for RIGHT, the old for LEFT
 export const anchorOf = (
   row: Row
 ): { path: string; line: number; side: Side } | null => {
@@ -176,8 +169,7 @@ const threadRows = (thread: Thread, width: number, outdated: boolean): Row[] =>
     ];
   });
 
-// the diff with each thread placed under the line it's on; threads whose line has changed
-// since ("outdated") go under their file's header instead
+// outdated threads have no line anymore, so they go under the file header
 export const withThreads = (
   rows: Row[],
   threads: Thread[],

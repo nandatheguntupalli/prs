@@ -1,8 +1,5 @@
-// Where a PR stands, for its icon and badge: open or draft, on its way to merged or closed after
-// you acted on it here, or merged or closed on GitHub.
-
 import type { PR } from "../github/prs.ts";
-import type { Landed, Landing } from "../hooks.ts";
+import type { Landed, Landing } from "../hooks/use-pending-action.ts";
 import { prKey } from "../stacks.ts";
 import { C } from "../theme.ts";
 import { ICONS } from "./icons.ts";
@@ -26,7 +23,6 @@ export const statusOf = (
   return pr.isDraft ? "draft" : "open";
 };
 
-// only open PRs can be merged, approved, updated and so on
 export const isOpen = (status: Status) =>
   status === "open" || status === "draft";
 

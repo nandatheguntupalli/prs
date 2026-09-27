@@ -1,8 +1,6 @@
-// Glyphs from Nerd Fonts' codicons, with plain fallbacks for fonts that don't have them
-// ("icons": "plain" in ~/.config/prs/config.json).
+// Nerd Font codicons, with plain fallbacks for fonts without them ("icons": "plain").
 
 const NERD = {
-  // codicon git-pull-request-closed, git-pull-request-draft, git-merge and git-pull-request
   closed: "",
   draft: "",
   merged: "",

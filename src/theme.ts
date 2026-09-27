@@ -1,9 +1,7 @@
-// Color themes. `C` is one shared object whose values are swapped in place when the theme changes,
-// so every component can read colors directly; the app re-renders on a theme change.
+// `C` is mutated in place on theme change, so components can read it directly.
 
 export interface Palette {
   bg: string;
-  // raised surfaces: dialogs, the selected row, file headers
   panel: string;
   selected: string;
   border: string;
@@ -11,7 +9,6 @@ export interface Palette {
   dim: string;
   faint: string;
   accent: string;
-  // a muted accent for chips and the active tab
   accentSoft: string;
   green: string;
   red: string;
@@ -19,7 +16,6 @@ export interface Palette {
   blue: string;
   cyan: string;
   purple: string;
-  // tints behind added / removed diff lines
   addBg: string;
   delBg: string;
 }
@@ -139,7 +135,6 @@ export const THEMES: Record<ThemeName, { label: string; palette: Palette }> = {
   },
 };
 
-// "system" follows the terminal's light / dark appearance
 export type ThemeChoice = ThemeName | "system";
 
 export const THEME_CHOICES: { id: ThemeChoice; label: string }[] = [

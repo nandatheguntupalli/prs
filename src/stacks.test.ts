@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { PR } from "./gh.ts";
+import type { PR } from "./github/prs.ts";
 import { findStacks, groupStacks, mergePlan } from "./stacks.ts";
 
 const pr = (

@@ -2,7 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 
-// the details sidebar's width, as a fraction of the window
+// fraction of the window
 export interface PaneSizes {
   sidebar: number;
 }

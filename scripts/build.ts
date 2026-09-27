@@ -1,11 +1,11 @@
-// Compiles prs into a standalone binary: bun scripts/build.ts [bun-target] [outfile]
+// Usage: bun scripts/build.ts [bun-target] [outfile]
 import type { Build } from "bun";
 
 export const build = async (
   target?: Build.CompileTarget,
   outfile = "dist/prs"
 ) => {
-  // OpenTUI statically imports a native lib package for every platform; keep only the one we're building for
+  // OpenTUI imports every platform's native package; stub all but the target's
   const platform = target
     ? target.replace(/^bun-/u, "")
     : `${process.platform}-${process.arch}`;

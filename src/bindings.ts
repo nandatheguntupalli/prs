@@ -1,8 +1,6 @@
-// The app's commands. App supplies the actions; this decides the names, keys, and where each works.
-
 import type { Cmd, Screen } from "./commands.ts";
 import type { PR } from "./github/prs.ts";
-import type { Queue } from "./hooks.ts";
+import type { Queue } from "./hooks/use-queues.ts";
 import type { PaneSizes } from "./layout.ts";
 
 type OnPR = (fn: (p: PR) => unknown) => () => unknown;
@@ -10,11 +8,9 @@ type OnPR = (fn: (p: PR) => unknown) => () => unknown;
 export interface CommandContext {
   queues: Queue[];
   sizes: PaneSizes;
-  // how far ctrl+d / ctrl+u move in the list, and half a screen elsewhere
   page: number;
   half: number;
-  onPRs: OnPR;
-  // pull requests
+  withPR: OnPR;
   merge: (p: PR) => unknown;
   approve: (p: PR) => unknown;
   review: (p: PR) => unknown;
@@ -28,7 +24,6 @@ export interface CommandContext {
   checkout: (p: PR) => unknown;
   undo: () => unknown;
   open: () => unknown;
-  // the list
   move: (n: number) => unknown;
   top: () => unknown;
   bottom: () => unknown;
@@ -37,12 +32,10 @@ export interface CommandContext {
   filter: () => unknown;
   openDiff: () => unknown;
   toggleSidebar: () => unknown;
-  // the details pane's tabs: Overview, Activity, Commits, Checks, Files Changed
   nextDetailTab: (dir: 1 | -1) => unknown;
   resize: (pane: keyof PaneSizes, fraction: number) => unknown;
   resetSizes: () => unknown;
   back: () => unknown;
-  // the diff
   moveDiff: (n: number) => unknown;
   diffTop: () => unknown;
   diffBottom: () => unknown;
@@ -52,12 +45,10 @@ export interface CommandContext {
   comment: () => unknown;
   toggleRange: () => unknown;
   movePR: (n: number) => unknown;
-  // checks
   moveChecks: (n: number) => unknown;
   openCheck: () => unknown;
   moveLog: (n: number) => unknown;
   nextError: (dir: 1 | -1) => unknown;
-  // app
   palette: () => unknown;
   help: () => unknown;
   theme: () => unknown;
@@ -80,7 +71,7 @@ export const buildCommands = (x: CommandContext): Cmd[] => {
       id: "merge",
       keys: ["m"],
       label: "Merge",
-      run: x.onPRs(x.merge),
+      run: x.withPR(x.merge),
       screens: LD,
       section: prs,
     },
@@ -88,7 +79,7 @@ export const buildCommands = (x: CommandContext): Cmd[] => {
       id: "approve",
       keys: ["a"],
       label: "Approve",
-      run: x.onPRs(x.approve),
+      run: x.withPR(x.approve),
       screens: LD,
       section: prs,
     },
@@ -96,7 +87,7 @@ export const buildCommands = (x: CommandContext): Cmd[] => {
       id: "review",
       keys: ["R"],
       label: "Review…",
-      run: x.onPRs(x.review),
+      run: x.withPR(x.review),
       screens: LD,
       section: prs,
     },
@@ -104,7 +95,7 @@ export const buildCommands = (x: CommandContext): Cmd[] => {
       id: "update",
       keys: ["u"],
       label: "Update branch",
-      run: x.onPRs(x.update),
+      run: x.withPR(x.update),
       screens: L,
       section: prs,
     },
@@ -112,7 +103,7 @@ export const buildCommands = (x: CommandContext): Cmd[] => {
       id: "close",
       keys: ["x"],
       label: "Close or reopen",
-      run: x.onPRs(x.close),
+      run: x.withPR(x.close),
       screens: LD,
       section: prs,
     },
@@ -128,7 +119,7 @@ export const buildCommands = (x: CommandContext): Cmd[] => {
       id: "draft",
       keys: ["s"],
       label: "Toggle draft",
-      run: x.onPRs(x.toggleDraft),
+      run: x.withPR(x.toggleDraft),
       screens: LD,
       section: prs,
     },
@@ -136,7 +127,7 @@ export const buildCommands = (x: CommandContext): Cmd[] => {
       id: "labels",
       keys: ["L"],
       label: "Labels…",
-      run: x.onPRs(x.labels),
+      run: x.withPR(x.labels),
       screens: LD,
       section: prs,
     },
@@ -144,7 +135,7 @@ export const buildCommands = (x: CommandContext): Cmd[] => {
       id: "checks",
       keys: ["c"],
       label: "Checks",
-      run: x.onPRs(x.checks),
+      run: x.withPR(x.checks),
       screens: LD,
       section: prs,
     },
@@ -152,7 +143,7 @@ export const buildCommands = (x: CommandContext): Cmd[] => {
       id: "copy",
       keys: ["y"],
       label: "Copy…",
-      run: x.onPRs(x.copy),
+      run: x.withPR(x.copy),
       screens: LD,
       section: prs,
     },
@@ -160,7 +151,7 @@ export const buildCommands = (x: CommandContext): Cmd[] => {
       id: "edit",
       keys: ["e"],
       label: "Open in editor",
-      run: x.onPRs(x.edit),
+      run: x.withPR(x.edit),
       screens: LD,
       section: prs,
     },
@@ -168,7 +159,7 @@ export const buildCommands = (x: CommandContext): Cmd[] => {
       id: "checkout",
       keys: ["B"],
       label: "Check out branch",
-      run: x.onPRs(x.checkout),
+      run: x.withPR(x.checkout),
       screens: LD,
       section: prs,
     },
@@ -579,7 +570,6 @@ export const buildCommands = (x: CommandContext): Cmd[] => {
   ];
 };
 
-// the keys worth showing at the bottom of each screen
 export const HINTS: Record<string, string[]> = {
   checks: ["open-check", "open", "refresh", "back"],
   diff: ["comment", "next-file", "files", "next-thread", "range", "back"],

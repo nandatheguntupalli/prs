@@ -7,18 +7,9 @@ import {
 import { useEffect, useEffectEvent, useState } from "react";
 import type { ReactNode } from "react";
 
-import { buildCommands, HINTS } from "./app-commands.ts";
-import {
-  sidebarCells,
-  useChecksData,
-  useDiffData,
-  usePaneSizes,
-  useSelection,
-  useTheme,
-} from "./app-hooks.ts";
-import type { Resizing } from "./app-hooks.ts";
-import { helpSections, hintsFor, keymapFor } from "./commands.ts";
-import type { Cmd, Screen } from "./commands.ts";
+import { buildCommands, HINTS } from "./bindings.ts";
+import { hintsFor, keymapFor } from "./commands.ts";
+import type { Screen } from "./commands.ts";
 import type { Config } from "./config.ts";
 import { repoPath, saveConfig } from "./config.ts";
 import { isErrorLine } from "./github/checks.ts";
@@ -33,8 +24,16 @@ import {
   updateBranch,
 } from "./github/prs.ts";
 import type { MergeMethod, PR, UpdateMethod } from "./github/prs.ts";
-import { useBehind, useLoader, usePendingAction, useQueues } from "./hooks.ts";
-import type { PendingKind } from "./hooks.ts";
+import { useBehind } from "./hooks/use-behind.ts";
+import { useChecksData } from "./hooks/use-checks-data.ts";
+import { useDiffData } from "./hooks/use-diff-data.ts";
+import { useLoader } from "./hooks/use-loader.ts";
+import { usePaneSizes } from "./hooks/use-pane-sizes.ts";
+import { usePendingAction } from "./hooks/use-pending-action.ts";
+import type { PendingKind } from "./hooks/use-pending-action.ts";
+import { useQueues } from "./hooks/use-queues.ts";
+import { useSelection } from "./hooks/use-selection.ts";
+import { useTheme } from "./hooks/use-theme.ts";
 import type { PaneSizes } from "./layout.ts";
 import {
   checkoutBranch,
@@ -43,310 +42,23 @@ import {
   runInTerminal,
 } from "./local.ts";
 import { mergePlan, prKey } from "./stacks.ts";
-import type { StackPlace } from "./stacks.ts";
 import { C } from "./theme.ts";
-import type { ThemeChoice } from "./theme.ts";
 import { ChecksView, JobView } from "./ui/checks.tsx";
-import { Footer, Header, TabBar } from "./ui/chrome.tsx";
+import { Footer, Header, PRTitle, TabBar } from "./ui/chrome.tsx";
 import type { Toast } from "./ui/chrome.tsx";
 import { anchorOf } from "./ui/diff-model.ts";
-import type { ParsedDiff } from "./ui/diff-model.ts";
-import { DiffView, fileAt, jump } from "./ui/diff.tsx";
-import { fit, plural } from "./ui/format.ts";
+import { diffSubtitle, DiffView, fileAt, jump } from "./ui/diff.tsx";
 import { keyId, sequence } from "./ui/keys.ts";
-import type { Action } from "./ui/keys.ts";
-import {
-  CommandPalette,
-  ComposeModal,
-  CopyModal,
-  FilesModal,
-  HelpModal,
-  LabelsModal,
-  ReviewModal,
-  ThemeModal,
-} from "./ui/modals.tsx";
-import { PRTable, pageSize } from "./ui/pr-list.tsx";
-import { BOLD, Centered } from "./ui/primitives.tsx";
-import { DETAIL_TABS, Sidebar } from "./ui/sidebar.tsx";
+import { ListScreen } from "./ui/list-screen.tsx";
+import { ModalHost } from "./ui/modal-host.tsx";
+import type { ModalState } from "./ui/modal-host.tsx";
+import { pageSize } from "./ui/pr-list.tsx";
+import { DETAIL_TABS } from "./ui/sidebar.tsx";
 import type { DetailTab, PRActions } from "./ui/sidebar.tsx";
 import { isOpen, statusLook, statusOf } from "./ui/status.ts";
-import type { Status } from "./ui/status.ts";
 
-type ModalState =
-  | { kind: "palette" }
-  | { kind: "help" }
-  | { kind: "theme" }
-  | { kind: "files" }
-  | { kind: "labels"; pr: PR }
-  | { kind: "review"; pr: PR }
-  | { kind: "copy"; pr: PR }
-  | {
-      kind: "compose";
-      title: string;
-      context: string;
-      handleSubmit: (body: string) => unknown;
-    };
-
-// "g g" and friends; there's one app, so one tracker
+// tracks two-key sequences like "g g"
 const readSequence = sequence();
-
-// the line between two panes. Grabbing it starts a resize; the drag itself is handled at the
-// app's root, since terminals report motion a cell at a time and the pointer leaves a 1-cell line at once
-const Divider = ({ active, onGrab }: { active: boolean; onGrab: Action }) => {
-  const [hot, setHot] = useState(false);
-  return (
-    <box
-      width={1}
-      flexShrink={0}
-      border={["left"]}
-      borderColor={hot || active ? C.accent : C.border}
-      onMouseOver={() => setHot(true)}
-      onMouseOut={() => setHot(false)}
-      onMouseDown={onGrab}
-    />
-  );
-};
-
-const PRTitle = ({ pr, showRepo }: { pr: PR; showRepo: boolean }) => (
-  <text wrapMode="none" truncate>
-    <span fg={C.accent}>
-      {showRepo ? `${pr.repo}#${pr.number} ` : `#${pr.number} `}
-    </span>
-    <span fg={C.text} attributes={BOLD}>
-      {pr.title}
-    </span>
-    <span fg={C.green}>{`  +${pr.additions}`}</span>
-    <span fg={C.red}>{` −${pr.deletions}`}</span>
-  </text>
-);
-
-const EmptyList = ({
-  prs,
-  emptyLabel,
-  filter,
-}: {
-  prs: PR[] | null;
-  emptyLabel: string;
-  filter: string;
-}) => {
-  if (!prs) {
-    return (
-      <Centered>
-        <text fg={C.dim}>Loading pull requests…</text>
-      </Centered>
-    );
-  }
-  return (
-    <Centered>
-      <text fg={C.green} attributes={BOLD}>
-        {filter ? "No matches." : "Inbox zero."}
-      </text>
-      <text fg={C.dim}>
-        {filter
-          ? `Nothing in ${emptyLabel} matches “${filter}”.`
-          : `Nothing in ${emptyLabel}.`}
-      </text>
-    </Centered>
-  );
-};
-
-interface ListProps {
-  prs: PR[] | null;
-  list: PR[];
-  places: Map<string, StackPlace>;
-  statusOf: (pr: PR) => Status;
-  pr: PR | undefined;
-  cursor: number;
-  handleSelectPR: (i: number) => void;
-  sidebar: boolean;
-  behind: number | undefined;
-  actions: PRActions;
-  emptyLabel: string;
-  filter: string;
-  sizes: PaneSizes;
-  resizing: Resizing;
-  handleGrab: (pane: keyof PaneSizes) => void;
-  detailTab: DetailTab;
-  handleDetailTab: (tab: DetailTab) => void;
-  width: number;
-  height: number;
-}
-
-// the PR table and the selected PR's details
-const ListScreen = (p: ListProps) => {
-  const paneW = p.width;
-  const sideW = sidebarCells(paneW, p.sidebar, p.sizes.sidebar);
-  const showSidebar = Boolean(p.pr) && p.sidebar;
-  return (
-    <box flexGrow={1} flexDirection="row">
-      {p.pr ? (
-        <PRTable
-          list={p.list}
-          places={p.places}
-          statusOf={p.statusOf}
-          cursor={p.cursor}
-          focused
-          width={paneW - sideW - (p.sidebar ? 1 : 0)}
-          height={p.height}
-          onSelect={p.handleSelectPR}
-        />
-      ) : (
-        <EmptyList prs={p.prs} emptyLabel={p.emptyLabel} filter={p.filter} />
-      )}
-      {showSidebar ? (
-        <Divider
-          active={p.resizing === "sidebar"}
-          onGrab={() => p.handleGrab("sidebar")}
-        />
-      ) : null}
-      {showSidebar && p.pr ? (
-        <Sidebar
-          pr={p.pr}
-          status={p.statusOf(p.pr)}
-          width={sideW}
-          behind={p.behind}
-          stack={p.places.get(prKey(p.pr))}
-          mergeCount={mergePlan(p.pr, p.places).length}
-          tab={p.detailTab}
-          onTab={p.handleDetailTab}
-          actions={p.actions}
-        />
-      ) : null}
-    </box>
-  );
-};
-
-const diffSubtitle = (
-  diff: ParsedDiff | null,
-  threadCount: number,
-  where: string,
-  selecting: boolean
-) =>
-  [
-    plural(diff?.files.length ?? 0, "file"),
-    threadCount ? plural(threadCount, "comment thread") : "",
-    where ? fit(where, 60) : "",
-    selecting ? "selecting lines, ⏎ to comment" : "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
-
-// the dialog that's open, if any
-const ModalHost = ({
-  modal,
-  commands,
-  screen,
-  themeChoice,
-  files,
-  onClose,
-  onTheme,
-  onPreview,
-  onJumpFile,
-  onLabels,
-  onReview,
-  onCopy,
-}: {
-  modal: ModalState | null;
-  commands: Cmd[];
-  screen: Screen;
-  themeChoice: ThemeChoice;
-  files: ParsedDiff["files"];
-  onClose: () => void;
-  onTheme: (choice: ThemeChoice) => void;
-  onPreview: (choice: ThemeChoice | null) => void;
-  onJumpFile: (path: string) => void;
-  onLabels: (pr: PR, names: string[]) => void;
-  onReview: (
-    pr: PR,
-    event: Parameters<typeof submitReview>[1],
-    body: string
-  ) => void;
-  onCopy: (label: string, value: string) => void;
-}) => {
-  switch (modal?.kind) {
-    case "palette": {
-      return (
-        <CommandPalette
-          commands={commands
-            .filter((c) => !c.paletteHidden && c.screens.includes(screen))
-            .map((c) => ({
-              id: c.id,
-              keys: c.keys.map((k) => k.replace("return", "⏎")).join(" "),
-              label: c.label,
-              run: c.run,
-            }))}
-          onClose={onClose}
-        />
-      );
-    }
-    case "help": {
-      return (
-        <HelpModal
-          sections={helpSections(commands.filter((c) => !c.paletteHidden))}
-          onClose={onClose}
-        />
-      );
-    }
-    case "theme": {
-      return (
-        <ThemeModal
-          current={themeChoice}
-          onPreview={onPreview}
-          onChoose={onTheme}
-          onClose={() => {
-            onPreview(null);
-            onClose();
-          }}
-        />
-      );
-    }
-    case "files": {
-      return <FilesModal files={files} onJump={onJumpFile} onClose={onClose} />;
-    }
-    case "labels": {
-      const { pr } = modal;
-      return (
-        <LabelsModal
-          pr={pr}
-          onApply={(names) => onLabels(pr, names)}
-          onClose={onClose}
-        />
-      );
-    }
-    case "review": {
-      const { pr } = modal;
-      return (
-        <ReviewModal
-          pr={pr}
-          onSubmit={(event, body) => onReview(pr, event, body)}
-          onClose={onClose}
-        />
-      );
-    }
-    case "copy": {
-      return (
-        <CopyModal
-          pr={modal.pr}
-          onCopy={(choice) => onCopy(choice.label, choice.value)}
-          onClose={onClose}
-        />
-      );
-    }
-    case "compose": {
-      return (
-        <ComposeModal
-          title={modal.title}
-          context={modal.context}
-          onSubmit={modal.handleSubmit}
-          onClose={onClose}
-        />
-      );
-    }
-    default: {
-      return null;
-    }
-  }
-};
 
 export const App = ({
   scope,
@@ -359,7 +71,7 @@ export const App = ({
   config,
   onQuit,
 }: {
-  // "owner/repo", or "" to look across every repo
+  // "" means every repo
   scope: string;
   local: string | null;
   method: MergeMethod;
@@ -375,11 +87,10 @@ export const App = ({
   const theme = useTheme(config);
 
   const [toast, setToast] = useState<Toast | null>(null);
-  // toasts are one line; a line break would spill into the key hints below
+  // toasts are one line; a newline would spill into the hints
   const flash = (text: string, color = C.text) =>
     setToast({ color, text: text.replaceAll(/\s+/gu, " ").trim() });
 
-  // ── data ──────────────────────────────────────────────────────────────
   const me = useLoader("viewer", viewer);
   const { busy, lists, queues, refresh } = useQueues(
     scope,
@@ -392,7 +103,7 @@ export const App = ({
     delay,
     flash,
     method,
-    // after a merge GitHub may have re-pointed PRs, so reload what it says now
+    // a merge can retarget other PRs' bases, so reload
     onSettled: () => setSettled((n) => n + 1),
   });
   const reloadAfterAction = useEffectEvent(refresh);
@@ -402,7 +113,6 @@ export const App = ({
     }
   }, [settled]);
 
-  // ── view state ────────────────────────────────────────────────────────
   const [tab, setTab] = useState(scope ? "all" : "mine");
   const [cursor, setCursor] = useState(0);
   const [filter, setFilter] = useState("");
@@ -411,7 +121,6 @@ export const App = ({
   const [modal, setModal] = useState<ModalState | null>(null);
   const [sidebar, setSidebar] = useState(true);
   const [detailTab, setDetailTab] = useState<DetailTab>("overview");
-  // null until the user moves: the diff then opens on its first line of code
   const [diffMoved, setDiffMoved] = useState<number | null>(null);
   const [rangeStart, setRangeStart] = useState<number | null>(null);
   const [checksCursor, setChecksCursor] = useState(0);
@@ -448,11 +157,9 @@ export const App = ({
     screen,
   });
 
-  // ── actions ───────────────────────────────────────────────────────────
   const withPR = (fn: (p: PR) => unknown) => () =>
     pr ? fn(pr) : flash("No pull request selected", C.dim);
   const statusFor = (p: PR) => statusOf(p, pending.landed);
-  // merging, approving and the like only make sense while a PR is open
   const stillOpen = (p: PR) => {
     const status = statusFor(p);
     if (!isOpen(status)) {
@@ -464,7 +171,6 @@ export const App = ({
     <A extends unknown[]>(fn: (p: PR, ...rest: A) => unknown) =>
     (p: PR, ...rest: A) =>
       stillOpen(p) && fn(p, ...rest);
-  const onPRs = withPR;
 
   const attempt = async (
     doing: string,
@@ -481,7 +187,6 @@ export const App = ({
     }
   };
 
-  // where a PR sits in this queue, so it keeps that place once merged or closed
   const placeOf = (p: PR) => ({
     index: Math.max(
       0,
@@ -490,7 +195,7 @@ export const App = ({
     queue: tab,
   });
 
-  // merging a stacked PR takes everything below it with it, like `gh stack merge`
+  // merging a stacked PR merges everything below it too
   const queue = whenOpen((target: PR, kind: PendingKind = "merge") => {
     const plan = kind === "merge" ? mergePlan(target, places) : [target];
     const native =
@@ -498,7 +203,7 @@ export const App = ({
         ? (places.get(prKey(target))?.stack.native ?? null)
         : null;
     pending.queue(kind, plan, native, placeOf);
-    // it stays listed, so move on to the next one
+    // it stays in the list, so step past it
     setCursor((c) => Math.min(c + 1, list.length - 1));
     setScreen("list");
   });
@@ -510,7 +215,6 @@ export const App = ({
       pending.forget(p);
     });
 
-  // x closes an open PR and reopens a closed one
   const closeOrReopen = (p: PR) =>
     statusFor(p) === "closed" ? reopen(p) : queue(p, "close");
 
@@ -538,7 +242,6 @@ export const App = ({
   };
 
   const update = (target: PR) => {
-    // GitHub can't rebase or merge a branch that conflicts with its base
     if (target.mergeable === "CONFLICTING") {
       flash(
         `#${target.number} conflicts with ${target.baseRefName}; resolve it locally, then push`,
@@ -610,7 +313,6 @@ export const App = ({
     handleUpdate: withPR(whenOpen(update)),
   };
 
-  // ── moving around ─────────────────────────────────────────────────────
   const move = (n: number) =>
     setCursor((c) => Math.max(0, Math.min(c + n, list.length - 1)));
 
@@ -654,7 +356,6 @@ export const App = ({
     onQuit();
   };
 
-  // diff: the row under the cursor gets a new comment, or a reply if it's a comment
   const comment = () => {
     const row = rows[diffCursor];
     if (!pr || !row) {
@@ -783,7 +484,6 @@ export const App = ({
       setDiffMoved(
         jump(rows, diffCursor, dir, (r) => r.kind === "comment" && r.first)
       ),
-    onPRs,
     open: openThing,
     openCheck,
     openDiff,
@@ -792,7 +492,6 @@ export const App = ({
     queues,
     quit: () => (screen === "list" ? quit() : back()),
     refresh: () => {
-      // merged and closed PRs stay listed until now
       pending.clearLanded();
       refresh();
       threads.reload();
@@ -810,9 +509,9 @@ export const App = ({
     top: () => setCursor(0),
     undo: pending.undo,
     update: whenOpen(update),
+    withPR,
   });
 
-  // ── keys ──────────────────────────────────────────────────────────────
   useKeyboard((key: KeyEvent) => {
     const id = keyId(key);
     if (id === "ctrl+c") {
@@ -839,7 +538,6 @@ export const App = ({
     action?.();
   });
 
-  // ── what to draw ──────────────────────────────────────────────────────
   const bodyH = height - (screen === "list" ? 7 : 5);
   const title: ReactNode = pr ? <PRTitle pr={pr} showRepo={showRepo} /> : null;
 
@@ -919,8 +617,7 @@ export const App = ({
       height={height}
       backgroundColor={C.bg}
       onMouseDrag={(event) => panes.dragTo(event.x)}
-      // links in descriptions and comments are real terminal hyperlinks; since the app takes the
-      // mouse, a click on one is opened here
+      // we capture the mouse, so clicks on OSC 8 links have to be opened by hand
       onMouseDown={(event) => {
         const url = renderer.getLinkAt(event.x, event.y);
         if (url) {

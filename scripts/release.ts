@@ -1,5 +1,4 @@
-// CI release: builds every target, publishes a GitHub release, and updates the formula in ./tap
-// Usage: bun scripts/release.ts v1.2.3   (defaults to $GITHUB_REF_NAME)
+// Run by CI on a tag push. Builds each target, publishes the release, and updates ./tap.
 import { $ } from "bun";
 
 import { build } from "./build.ts";
@@ -12,12 +11,10 @@ if (!tag?.startsWith("v")) {
 }
 const version = tag.slice(1);
 
-// the tag is the source of truth for the version baked into the binary
 const pkg = await Bun.file("package.json").json();
 pkg.version = version;
 await Bun.write("package.json", `${JSON.stringify(pkg, null, 2)}\n`);
 
-// builds a target, packages it, and returns the tarball's sha256
 const release = async (target: Target) => {
   const dir = `build/${target}`;
   await build(`bun-${target}`, `${dir}/prs`);

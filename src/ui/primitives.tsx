@@ -9,7 +9,6 @@ import type { Action } from "./keys.ts";
 
 export const { BOLD } = TextAttributes;
 
-// a one-line pill: the label on its color, clickable
 export const Button = ({
   label,
   color,
@@ -26,7 +25,6 @@ export const Button = ({
   </box>
 );
 
-// a key and what it does, for the hint bar and help
 export const KeyHint = ({ keys, label }: { keys: string; label: string }) => (
   <text wrapMode="none">
     <span fg={C.accent} bg={C.accentSoft} attributes={BOLD}>
@@ -47,7 +45,6 @@ export const Centered = ({ children }: { children: ReactNode }) => (
   </box>
 );
 
-// a small uppercase heading for a section of the sidebar
 export const SectionTitle = ({ children }: { children: string }) => (
   <text fg={C.faint} attributes={BOLD} marginTop={1}>
     {children.toUpperCase()}
@@ -56,7 +53,6 @@ export const SectionTitle = ({ children }: { children: string }) => (
 
 const FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
 
-// a braille spinner that only ticks while it's shown
 export const Spinner = ({ color }: { color?: string }) => {
   const [frame, setFrame] = useState(0);
   useEffect(() => {
@@ -69,7 +65,6 @@ export const Spinner = ({ color }: { color?: string }) => {
   return <span fg={color ?? C.accent}>{FRAMES[frame]}</span>;
 };
 
-// a centered dialog over the whole screen
 export const Modal = ({
   title,
   width,
@@ -125,12 +120,10 @@ export interface ListItem {
   label: string;
   hint?: string;
   color?: string;
-  // shown before the label, like a checkbox
   mark?: string;
   markColor?: string;
 }
 
-// a scrolling list with one highlighted item, for dialogs
 export const PickList = ({
   items,
   cursor,
@@ -186,7 +179,7 @@ export const PickList = ({
   );
 };
 
-// a loose match: every character of the query appears, in order
+// fuzzy: every character of the query, in order
 export const fuzzy = (query: string, text: string) => {
   const q = query.toLowerCase().replaceAll(" ", "");
   const t = text.toLowerCase();

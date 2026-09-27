@@ -11,13 +11,12 @@ export type CheckState =
 
 export interface Check {
   name: string;
-  // the workflow an Actions job belongs to, or the app/context that reported a status
   group: string;
   state: CheckState;
   startedAt: string | null;
   completedAt: string | null;
   url: string;
-  // set for GitHub Actions jobs, which is what makes their steps and logs viewable
+  // only Actions jobs have steps and logs we can fetch
   jobId: number | null;
 }
 
@@ -57,7 +56,7 @@ const FAILED = new Set([
   "STARTUP_FAILURE",
 ]);
 
-// one state for check runs (status + conclusion) and commit statuses (state) alike
+// check runs and commit statuses report state differently; this is both
 export const checkState = (
   status: string | undefined,
   conclusion: string | null | undefined
@@ -103,7 +102,6 @@ const ORDER: Record<CheckState, number> = {
   skipped: 6,
 };
 
-// every check and status on the PR's head commit, failures first
 export const listChecks = async (pr: PR): Promise<Check[]> => {
   const octokit = await api();
   const data = await octokit.graphql<{
@@ -184,7 +182,7 @@ export const jobSteps = async (
   }));
 };
 
-// a job's log as lines, without the timestamp GitHub puts on each one
+// GitHub prefixes every log line with a timestamp
 export const jobLog = async (
   repo: string,
   jobId: number
@@ -200,6 +198,5 @@ export const jobLog = async (
     .map((line) => line.replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z /u, ""));
 };
 
-// the log lines worth jumping to
 export const isErrorLine = (line: string) =>
   line.startsWith("##[error]") || /\b(?:error|failed|failure)\b/iu.test(line);

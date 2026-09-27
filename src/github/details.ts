@@ -1,12 +1,9 @@
-// What the details pane's tabs show: the conversation, the commits, and the changed files.
-
 import { api, split } from "./client.ts";
 import type { PR } from "./prs.ts";
 
 export interface ActivityItem {
   id: string;
   author: string;
-  // "commented", "approved", "requested changes", "reviewed"
   action: string;
   body: string;
   createdAt: string;
@@ -19,7 +16,6 @@ const REVIEW_ACTIONS: Record<string, string> = {
   DISMISSED: "had a review dismissed",
 };
 
-// the PR's conversation: comments and reviews, oldest first
 export const listActivity = async (pr: PR): Promise<ActivityItem[]> => {
   const octokit = await api();
   const [comments, reviews] = await Promise.all([
@@ -42,7 +38,7 @@ export const listActivity = async (pr: PR): Promise<ActivityItem[]> => {
       createdAt: c.created_at,
       id: `c${c.id}`,
     })),
-    // a review with no summary and no verdict is just the wrapper around line comments
+    // reviews with no body or verdict are just containers for line comments
     ...reviews
       .filter((r) => r.body || r.state !== "COMMENTED")
       .map((r) => ({
@@ -61,7 +57,6 @@ export interface CommitItem {
   message: string;
   author: string;
   date: string;
-  // more than one parent: a merge, like "Merge branch 'main' into …"
   merge: boolean;
 }
 
@@ -83,7 +78,6 @@ export const listCommits = async (pr: PR): Promise<CommitItem[]> => {
 
 export interface FileItem {
   path: string;
-  // added, removed, modified, renamed, …
   status: string;
   additions: number;
   deletions: number;

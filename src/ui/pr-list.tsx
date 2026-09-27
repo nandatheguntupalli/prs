@@ -7,7 +7,6 @@ import { BOLD } from "./primitives.tsx";
 import { isOpen, statusLook } from "./status.ts";
 import type { Status } from "./status.ts";
 
-// the columns on the right of each PR's first line
 const COLUMNS = [
   { label: "Cmts", width: 6 },
   { label: "Rev", width: 5 },
@@ -18,7 +17,6 @@ const COLUMNS = [
 ];
 const RIGHT_W = COLUMNS.reduce((sum, c) => sum + c.width, 0) + 1;
 
-// the review column: a verdict, a conflict, or who still has to look
 const reviewMark = (pr: PR): { icon: string; color: string } => {
   if (pr.mergeable === "CONFLICTING") {
     return { color: C.red, icon: "⚠" };
@@ -84,7 +82,6 @@ const PRBlock = ({
   const rv = reviewMark(pr);
   const look = statusLook(status);
   const open = isOpen(status);
-  // open PRs show their stack; merged and closed ones say so instead
   let tag = "";
   if (!open) {
     tag = `  ${look.label}`;
@@ -141,7 +138,7 @@ const PRBlock = ({
   );
 };
 
-// each PR takes its two lines and a separator
+// two lines plus a separator
 const BLOCK_H = 3;
 
 export const PRTable = ({
@@ -163,9 +160,9 @@ export const PRTable = ({
   height: number;
   onSelect: (i: number) => void;
 }) => {
-  // the header and the line under it take two lines
+  // minus the header and its rule
   const visible = Math.max(1, Math.floor((height - 2) / BLOCK_H));
-  // keep the cursor roughly centered once the list is taller than the screen
+  // keep the cursor near the middle once the list scrolls
   const start = Math.max(
     0,
     Math.min(cursor - Math.floor(visible / 2), list.length - visible)
@@ -192,6 +189,5 @@ export const PRTable = ({
   );
 };
 
-// how many PRs a page is, for ctrl+d / ctrl+u
 export const pageSize = (height: number) =>
   Math.max(1, Math.floor((height - 2) / BLOCK_H) - 1);

@@ -1,7 +1,7 @@
 import { listChecks } from "../github/checks.ts";
 import { listActivity, listCommits, listFiles } from "../github/details.ts";
 import type { PR } from "../github/prs.ts";
-import { useLoader } from "../hooks.ts";
+import { useLoader } from "../hooks/use-loader.ts";
 import { prKey } from "../stacks.ts";
 import type { StackPlace } from "../stacks.ts";
 import { C } from "../theme.ts";
@@ -48,7 +48,6 @@ const BehindLine = ({ pr, behind }: { pr: PR; behind: number | undefined }) => {
   );
 };
 
-// who has reviewed, and who's still been asked to
 const Reviewers = ({ pr, width }: { pr: PR; width: number }) => {
   const reviewed = pr.reviews.filter((r) => !r.author.endsWith("[bot]"));
   const waiting = pr.reviewRequests.filter(
@@ -81,7 +80,6 @@ const Reviewers = ({ pr, width }: { pr: PR; width: number }) => {
   );
 };
 
-// the PR's whole stack, top first; everything from it down merges with it
 const StackList = ({
   pr,
   place,
@@ -146,7 +144,6 @@ const Loading = ({ error }: { error: string }) => (
   <text fg={error ? C.red : C.faint}>{error || "Loading…"}</text>
 );
 
-// repo and number, the title, then state, branches, and who opened it
 const DetailHeader = ({
   pr,
   status,
@@ -222,7 +219,6 @@ const DetailHeader = ({
   );
 };
 
-// merge, approve and friends while it's open; once it's merged or closed, just what still applies
 const Actions = ({
   status,
   behind,
@@ -277,7 +273,6 @@ const Actions = ({
   );
 };
 
-// when a merged or closed PR landed that way
 const LandedLine = ({ pr, status }: { pr: PR; status: Status }) => {
   const look = statusLook(status);
   const when = status === "merged" ? pr.mergedAt : pr.closedAt;
@@ -354,7 +349,6 @@ const ACTION_COLORS: Record<string, () => string> = {
   "requested changes": () => C.red,
 };
 
-// the conversation, oldest first: who said what, with each body rendered as markdown
 const Activity = ({ pr }: { pr: PR }) => {
   const items = useLoader(`activity:${prKey(pr)}`, () => listActivity(pr));
   if (!items.value) {
@@ -388,8 +382,7 @@ const Activity = ({ pr }: { pr: PR }) => {
   );
 };
 
-// the PR's commits on one line, oldest at the top: a dot per commit (a ring for merges) joined
-// to the next by the line running down the left
+// a dot per commit, a ring for merge commits
 const Commits = ({ pr, width }: { pr: PR; width: number }) => {
   const commits = useLoader(`commits:${prKey(pr)}:${pr.headRefOid}`, () =>
     listCommits(pr)
@@ -501,7 +494,6 @@ const Files = ({ pr, width }: { pr: PR; width: number }) => {
   );
 };
 
-// what the selected tab shows
 const TabContent = ({
   tab,
   pr,
@@ -566,7 +558,7 @@ export const Sidebar = ({
   width: number;
   behind: number | undefined;
   stack: StackPlace | undefined;
-  // how many PRs merging this one takes: it and everything below it in its stack
+  // merging takes everything below it in the stack too
   mergeCount: number;
   tab: DetailTab;
   onTab: (tab: DetailTab) => void;

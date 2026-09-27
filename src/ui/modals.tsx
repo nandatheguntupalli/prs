@@ -12,7 +12,6 @@ import { keyId } from "./keys.ts";
 import { BOLD, KeyHint, Modal, PickList, fuzzy } from "./primitives.tsx";
 import type { ListItem } from "./primitives.tsx";
 
-// up / down (and ctrl+n / ctrl+p) move through a list of `count` items
 const useListNav = (count: number) => {
   const [cursor, setCursor] = useState(0);
   const move = (id: string) => {
@@ -105,7 +104,7 @@ export interface HelpSection {
   keys: { keys: string; label: string }[];
 }
 
-// sections spread over columns so the tallest column is as short as it can be
+// balance the columns so the tallest one is as short as possible
 const toColumns = (sections: HelpSection[], count: number) => {
   const columns: HelpSection[][] = Array.from({ length: count }, () => []);
   const heights = Array.from({ length: count }, () => 0);

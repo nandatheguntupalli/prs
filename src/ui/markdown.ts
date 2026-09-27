@@ -1,10 +1,8 @@
-// PR descriptions go through OpenTUI's own <markdown> renderer; this gives it the theme's colors.
-
 import { SyntaxStyle } from "@opentui/core";
 
 import { C } from "../theme.ts";
 
-// one style per palette, built once; a theme change switches to (or builds) that theme's
+// SyntaxStyle is native, so build one per palette and reuse it
 const cache = new Map<string, SyntaxStyle>();
 
 export const markdownStyle = () => {

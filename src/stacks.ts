@@ -1,25 +1,22 @@
-// Finds stacked PRs: chains where one PR's base branch is another PR's head branch, the way
-// gh-stack, Graphite and friends build them, or GitHub's own native stacks when a repo has them.
+// A stack is a chain where one PR's base is another's head (gh-stack, Graphite),
+// or one of GitHub's native stacks.
 
-import type { PR } from "./gh.ts";
+import type { PR } from "./github/prs.ts";
 
 export interface Stack {
-  // bottom (closest to the trunk) first
+  // bottom first
   members: PR[];
-  // GitHub's stack number, when this is a native stack
   native: number | null;
 }
 
 export interface StackPlace {
   stack: Stack;
-  // 0 is the bottom
   index: number;
 }
 
-// PR numbers are only unique within a repo, and a list can mix repos
+// numbers and branches are only unique per repo
 export const prKey = (pr: PR) => `${pr.repo}#${pr.number}`;
 
-// branches are only unique within a repo too
 const branchKey = (repo: string, branch: string) => `${repo}\u0000${branch}`;
 
 const parentOf = (pr: PR, byHead: Map<string, PR>) => {
@@ -27,7 +24,6 @@ const parentOf = (pr: PR, byHead: Map<string, PR>) => {
   return parent && parent !== pr ? parent : undefined;
 };
 
-// the chain from a PR down to the bottom of its stack, top first
 export const ancestry = (pr: PR, byHead: Map<string, PR>) => {
   const chain = [pr];
   const seen = new Set([pr.number]);
@@ -40,7 +36,7 @@ export const ancestry = (pr: PR, byHead: Map<string, PR>) => {
   return chain;
 };
 
-// branches in forks can't be the base of another PR here, so only same-repo heads count
+// a fork's branch can't be the base of a PR here
 export const headIndex = (prs: PR[]) =>
   new Map(
     prs
@@ -61,7 +57,6 @@ const chainStacks = (prs: PR[]): Stack[] => {
   return [...bottoms.values()]
     .filter((members) => members.length > 1)
     .map((members) => ({
-      // deeper in the chain is higher in the stack
       members: members.toSorted(
         (a, b) => ancestry(a, byHead).length - ancestry(b, byHead).length
       ),
@@ -73,7 +68,6 @@ const nativeStacks = (prs: PR[]): Stack[] => {
   const byNumber = new Map<string, PR[]>();
   for (const pr of prs) {
     if (pr.stackNumber !== null) {
-      // stack numbers are per repo too
       const key = `${pr.repo}#${pr.stackNumber}`;
       byNumber.set(key, [...(byNumber.get(key) ?? []), pr]);
     }
@@ -86,7 +80,7 @@ const nativeStacks = (prs: PR[]): Stack[] => {
   }));
 };
 
-// every stack among these PRs, keyed by PR number; native stacks win over inferred chains
+// native stacks win over inferred chains
 export const findStacks = (prs: PR[]): Map<string, StackPlace> => {
   const places = new Map<string, StackPlace>();
   for (const stack of [...nativeStacks(prs), ...chainStacks(prs)]) {
@@ -100,7 +94,6 @@ export const findStacks = (prs: PR[]): Map<string, StackPlace> => {
   return places;
 };
 
-// stacks shown together, top first, where their first member would have appeared
 export const groupStacks = (prs: PR[], places: Map<string, StackPlace>) => {
   const out: PR[] = [];
   const shown = new Set<string>();
@@ -120,7 +113,6 @@ export const groupStacks = (prs: PR[], places: Map<string, StackPlace>) => {
   return out;
 };
 
-// what merging a PR takes with it: the PR and everything below it in its stack, top first
 export const mergePlan = (pr: PR, places: Map<string, StackPlace>) => {
   const place = places.get(prKey(pr));
   if (!place) {

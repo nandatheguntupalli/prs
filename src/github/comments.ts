@@ -10,11 +10,10 @@ export interface Comment {
   createdAt: string;
 }
 
-// a review comment and its replies, anchored to a line of the diff
 export interface Thread {
   id: number;
   path: string;
-  // null once the code it was left on has changed ("outdated")
+  // null when outdated
   line: number | null;
   startLine: number | null;
   side: Side;
@@ -58,7 +57,6 @@ export interface NewComment {
   path: string;
   line: number;
   side: Side;
-  // for a comment on a range of lines
   startLine?: number;
   body: string;
 }

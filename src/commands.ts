@@ -1,5 +1,4 @@
-// Every action, defined once: the keymap, the command palette, the help screen, and the hint bar
-// are all built from this list.
+// The keymap, command palette, help screen and hint bar are all built from one list of commands.
 
 import type { Hint } from "./ui/chrome.tsx";
 import type { HelpSection } from "./ui/modals.tsx";
@@ -9,16 +8,14 @@ export type Screen = "list" | "diff" | "checks" | "job";
 export interface Cmd {
   id: string;
   label: string;
-  // what to press; "g g" is a two-key sequence
+  // "g g" is a two-key sequence
   keys: string[];
   section: "Pull requests" | "Moving around" | "Diff" | "Checks" | "App";
   screens: Screen[];
   run: () => unknown;
-  // hidden from the palette (movement keys, mostly)
   paletteHidden?: boolean;
 }
 
-// how a key is shown to people
 const KEY_LABELS: Record<string, string> = {
   " ": "space",
   down: "↓",

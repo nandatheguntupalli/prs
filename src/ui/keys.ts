@@ -1,6 +1,5 @@
 import type { KeyEvent } from "@opentui/core";
 
-// keys that OpenTUI reports by name; everything else is matched by the character typed
 const NAMED_KEYS = new Set([
   "backspace",
   "down",
@@ -35,7 +34,6 @@ export type Action = () => unknown;
 export const bind = (keys: string[], action: Action) =>
   keys.map((k) => [k, action] as const);
 
-// two-key sequences like "g g" fire when the second key follows within this window
 const SEQUENCE_MS = 600;
 
 export const sequence = () => {

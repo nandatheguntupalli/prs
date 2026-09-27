@@ -18,7 +18,7 @@ export const run = async (
     proc.exited,
   ]);
   if (code !== 0) {
-    // gh and its extensions prefix errors with their own ✗
+    // gh prefixes its errors with ✗
     const reason = err
       .trim()
       .split("\n")[0]
@@ -28,7 +28,6 @@ export const run = async (
   return out;
 };
 
-// a token from the environment, or else the one the gh CLI is logged in with
 const token = async () => {
   const fromEnv = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
   if (fromEnv) {
@@ -44,7 +43,7 @@ const token = async () => {
   }
 };
 
-// Octokit logs failed requests to the console, which would scribble over the TUI
+// Octokit logs failures to the console, which draws over the TUI
 const quiet = () => null;
 
 const createClient = async () =>
@@ -65,7 +64,6 @@ export const split = (repo: string) => {
   return { owner, repo: name };
 };
 
-// when set, nothing that changes GitHub actually runs
 export const dryRun = { enabled: false };
 
 interface ErrorBody {
@@ -73,8 +71,7 @@ interface ErrorBody {
   errors?: (string | { message?: string })[];
 }
 
-// GitHub's own reason, without the wrapping Octokit adds: REST errors carry it in the response
-// body, GraphQL errors in `errors`, behind a "Request failed due to following response errors" line
+// Octokit wraps GitHub's message: REST puts it in the response body, GraphQL in `errors`
 export const errorMessage = (error: unknown) => {
   const graphql = (error as { errors?: { message?: string }[] }).errors?.[0]
     ?.message;
@@ -102,7 +99,6 @@ export const currentRepo = async (): Promise<string> => {
   return out.trim();
 };
 
-// the Mine and Review requested views just stay empty if this fails
 export const viewer = async (): Promise<string> => {
   try {
     const octokit = await api();

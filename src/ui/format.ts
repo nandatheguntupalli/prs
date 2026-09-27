@@ -24,7 +24,6 @@ export const age = (iso: string | null) => {
   return `${Math.floor(s / MONTH)}mo`;
 };
 
-// how long something ran, like "1m 04s"
 export const duration = (start: string | null, end: string | null) => {
   if (!start) {
     return "";
@@ -43,13 +42,12 @@ export const duration = (start: string | null, end: string | null) => {
   return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
 };
 
-// cut to n columns with a trailing ellipsis
 export const fit = (s: string, n: number) =>
   s.length > n ? `${s.slice(0, Math.max(0, n - 1))}…` : s;
 
 export const pad = (s: string, n: number) => fit(s, n).padEnd(n);
 
-// 1234 → "1.2k", 12345 → "12k"
+// 1234 -> 1.2k, 12345 -> 12k
 export const compact = (n: number) => {
   if (n < 1000) {
     return String(n);
@@ -152,7 +150,7 @@ export const reviewStatus = (pr: PR): Status & { short: string } => {
   }
 };
 
-// colors are read when called, so they follow theme changes
+// read C at call time so these follow theme changes
 export const reviewState = (state: string): Status => {
   switch (state) {
     case "APPROVED": {
@@ -170,7 +168,6 @@ export const reviewState = (state: string): Status => {
   }
 };
 
-// readable text on a GitHub label's background color
 export const labelText = (hex: string) => {
   const n = Number.parseInt(hex.slice(0, 6).padEnd(6, "0"), 16);
   const [r, g, b] = [(n / 65_536) % 256, (n / 256) % 256, n % 256].map(
@@ -180,8 +177,8 @@ export const labelText = (hex: string) => {
   return luma > 150 ? "#111111" : "#ffffff";
 };
 
-// a PR description ready for the markdown renderer: HTML comments and tags (mostly bot badges)
-// and images dropped, and escaped newlines unescaped when a tool posted them that way
+// bots stuff descriptions with HTML comments, badges and images; drop them. Some tools post
+// literal \n instead of newlines, so unescape those too.
 export const cleanMarkdown = (body = "") => {
   const unescaped = body.includes("\n") ? body : body.replaceAll("\\n", "\n");
   const cleaned = unescaped

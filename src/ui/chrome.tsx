@@ -1,4 +1,4 @@
-import type { MergeMethod, UpdateMethod } from "../github/prs.ts";
+import type { MergeMethod, PR, UpdateMethod } from "../github/prs.ts";
 import { C } from "../theme.ts";
 import { fit } from "./format.ts";
 import { BOLD, KeyHint, Spinner } from "./primitives.tsx";
@@ -10,7 +10,7 @@ export const Header = ({
   method,
   updateMethod,
 }: {
-  // "owner/repo", or empty when looking across every repo
+  // empty when looking across every repo
   scope: string;
   busy: boolean;
   dryRun: boolean;
@@ -67,7 +67,6 @@ export interface Tab {
   count: number | undefined;
 }
 
-// the queue tabs as pills, with the filter in progress on the right
 export const TabBar = ({
   tabs,
   active,
@@ -147,7 +146,6 @@ export interface Toast {
   color: string;
 }
 
-// as many hints as fit in `room` columns, keeping their order
 const fitHints = (hints: Hint[], room: number) => {
   const shown: Hint[] = [];
   let used = 0;
@@ -161,7 +159,6 @@ const fitHints = (hints: Hint[], room: number) => {
   return shown;
 };
 
-// the latest message, then the keys that matter here, trimmed to fit
 export const Footer = ({
   toast,
   hints,
@@ -189,3 +186,16 @@ export const Footer = ({
     </box>
   );
 };
+
+export const PRTitle = ({ pr, showRepo }: { pr: PR; showRepo: boolean }) => (
+  <text wrapMode="none" truncate>
+    <span fg={C.accent}>
+      {showRepo ? `${pr.repo}#${pr.number} ` : `#${pr.number} `}
+    </span>
+    <span fg={C.text} attributes={BOLD}>
+      {pr.title}
+    </span>
+    <span fg={C.green}>{`  +${pr.additions}`}</span>
+    <span fg={C.red}>{` −${pr.deletions}`}</span>
+  </text>
+);

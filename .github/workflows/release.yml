@@ -21,7 +21,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
-      # every platform's OpenTUI native lib, so each target can be cross-compiled
+      # all platforms' native packages, to cross-compile every target
       - run: bun install --frozen-lockfile --os="*" --cpu="*"
 
       - run: bun scripts/release.ts

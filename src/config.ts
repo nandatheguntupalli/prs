@@ -5,17 +5,12 @@ import path from "node:path";
 import type { ThemeChoice } from "./theme.ts";
 import type { IconStyle } from "./ui/icons.ts";
 
-// user settings, kept in ~/.config/prs/config.json
 export interface Config {
   theme: ThemeChoice;
-  // "nerd" (the default) uses Nerd Font glyphs like the pull-request icon; "plain" for other fonts
   icons?: IconStyle;
-  // a shell command for `e`, with {{repo}}, {{owner}}, {{name}}, {{number}}, {{headRef}},
-  // {{baseRef}}, {{author}}, {{url}} and {{repoPath}} filled in
+  // {{repo}} {{owner}} {{name}} {{number}} {{headRef}} {{baseRef}} {{author}} {{url}} {{repoPath}}
   editorCommand?: string;
-  // where repos are cloned: "owner/repo", "owner/*" or ":owner/:repo" keys to local paths
   repoPaths?: Record<string, string>;
-  // tabs of your own, each a GitHub search like "is:open label:bug"; kept to the repo when there is one
   sections?: { title: string; filter: string }[];
 }
 
@@ -37,13 +32,13 @@ export const loadConfig = async (): Promise<Config> => {
   }
 };
 
-// saves only the keys it's given, keeping whatever else the user wrote by hand
+// merge into what's on disk so hand-written keys survive
 export const saveConfig = async (changes: Partial<Config>) => {
   let current: Record<string, unknown> = {};
   try {
     current = await Bun.file(file()).json();
   } catch {
-    // no config yet
+    // no file yet
   }
   await mkdir(configDir(), { recursive: true });
   await Bun.write(
@@ -55,7 +50,6 @@ export const saveConfig = async (changes: Partial<Config>) => {
 const expandHome = (p: string) =>
   p.startsWith("~") ? path.join(homedir(), p.slice(1)) : p;
 
-// the local clone for a repo, from `repoPaths`: an exact key, then "owner/*", then ":owner/:repo"
 export const repoPath = (config: Config, repo: string): string | null => {
   const paths = config.repoPaths ?? {};
   const [owner = "", name = ""] = repo.split("/");
