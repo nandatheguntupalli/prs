@@ -9,7 +9,6 @@ import type { ReactNode } from "react";
 
 import { buildCommands, HINTS } from "./app-commands.ts";
 import {
-  graphCells,
   sidebarCells,
   useChecksData,
   useDiffData,
@@ -33,9 +32,6 @@ import {
   updateBranch,
 } from "./github/prs.ts";
 import type { MergeMethod, PR, UpdateMethod } from "./github/prs.ts";
-import { GraphView, useCellPixels, useGraph } from "./graph-view.tsx";
-import type { CellPixels, GraphState } from "./graph-view.tsx";
-import type { Commit } from "./graph.ts";
 import { useBehind, useLoader, usePendingAction, useQueues } from "./hooks.ts";
 import type { PendingKind } from "./hooks.ts";
 import type { PaneSizes } from "./layout.ts";
@@ -67,8 +63,6 @@ import { PRTable, pageSize, tableContentWidth } from "./ui/pr-list.tsx";
 import { BOLD, Centered } from "./ui/primitives.tsx";
 import { Sidebar } from "./ui/sidebar.tsx";
 import type { PRActions } from "./ui/sidebar.tsx";
-
-type Focus = "prs" | "graph";
 
 type ModalState =
   | { kind: "palette" }
@@ -118,16 +112,6 @@ const PRTitle = ({ pr, showRepo }: { pr: PR; showRepo: boolean }) => (
   </text>
 );
 
-const CommitTitle = ({ commit }: { commit: Commit }) => (
-  <text wrapMode="none" truncate>
-    <span fg={C.accent}>{`${commit.short} `}</span>
-    <span fg={C.text} attributes={BOLD}>
-      {commit.subject}
-    </span>
-    <span fg={C.dim}>{`  ${commit.author}`}</span>
-  </text>
-);
-
 const EmptyList = ({
   prs,
   emptyLabel,
@@ -164,7 +148,6 @@ interface ListProps {
   places: Map<string, StackPlace>;
   pr: PR | undefined;
   cursor: number;
-  focus: Focus;
   showRepo: boolean;
   handleSelectPR: (i: number) => void;
   sidebar: boolean;
@@ -172,11 +155,6 @@ interface ListProps {
   actions: PRActions;
   emptyLabel: string;
   filter: string;
-  graphPane: boolean;
-  graph: GraphState;
-  graphCursor: number;
-  handleSelectCommit: (i: number) => void;
-  cell: CellPixels | null;
   sizes: PaneSizes;
   resizing: Resizing;
   handleGrab: (pane: keyof PaneSizes) => void;
@@ -184,10 +162,9 @@ interface ListProps {
   height: number;
 }
 
-// graph on the left, then the PR table and the selected PR's details
+// the PR table and the selected PR's details
 const ListScreen = (p: ListProps) => {
-  const graphW = graphCells(p.width, p.graphPane, p.sizes.graph);
-  const paneW = p.width - graphW - (p.graphPane ? 1 : 0);
+  const paneW = p.width;
   // the table never needs to be wider than its content; any extra width goes to the details
   const tableW = tableContentWidth(p.list, p.showRepo);
   const sideW = p.sidebar
@@ -196,30 +173,12 @@ const ListScreen = (p: ListProps) => {
   const showSidebar = Boolean(p.pr) && p.sidebar;
   return (
     <box flexGrow={1} flexDirection="row">
-      {p.graphPane ? (
-        <GraphView
-          rows={p.graph.rows}
-          status={p.graph.status}
-          cursor={p.graphCursor}
-          focused={p.focus === "graph"}
-          cell={p.cell}
-          width={graphW}
-          height={p.height}
-          onSelect={p.handleSelectCommit}
-        />
-      ) : null}
-      {p.graphPane ? (
-        <Divider
-          active={p.resizing === "graph"}
-          onGrab={() => p.handleGrab("graph")}
-        />
-      ) : null}
       {p.pr ? (
         <PRTable
           list={p.list}
           places={p.places}
           cursor={p.cursor}
-          focused={p.focus === "prs"}
+          focused
           showRepo={p.showRepo}
           width={paneW - sideW - (p.sidebar ? 1 : 0)}
           height={p.height}
@@ -388,7 +347,6 @@ export const App = ({
   updateMethod,
   delay,
   dryRun,
-  textGraph,
   initialSizes,
   config,
   onQuit,
@@ -400,8 +358,6 @@ export const App = ({
   updateMethod: UpdateMethod;
   delay: number;
   dryRun: boolean;
-  // draw the graph with characters even when the terminal can show images
-  textGraph: boolean;
   initialSizes: PaneSizes;
   config: Config;
   onQuit: () => void;
@@ -444,10 +400,7 @@ export const App = ({
   const [filtering, setFiltering] = useState(false);
   const [screen, setScreen] = useState<Screen>("list");
   const [modal, setModal] = useState<ModalState | null>(null);
-  const [focus, setFocus] = useState<Focus>("prs");
-  const [graphPane, setGraphPane] = useState(Boolean(scope));
   const [sidebar, setSidebar] = useState(true);
-  const [graphCursor, setGraphCursor] = useState(0);
   // null until the user moves: the diff then opens on its first line of code
   const [diffMoved, setDiffMoved] = useState<number | null>(null);
   const [rangeStart, setRangeStart] = useState<number | null>(null);
@@ -455,8 +408,7 @@ export const App = ({
   const [jobCheck, setJobCheck] = useState<Check | null>(null);
   const [logCursor, setLogCursor] = useState<number | null>(null);
 
-  const showGraph = graphPane && Boolean(scope);
-  const panes = usePaneSizes(initialSizes, width, showGraph);
+  const panes = usePaneSizes(initialSizes, width);
   const { list, places, pr, source } = useSelection({
     cursor,
     filter,
@@ -467,14 +419,6 @@ export const App = ({
   });
   const showRepo = !scope;
 
-  const graph = useGraph(scope, local, showGraph);
-  const cell = useCellPixels(showGraph && !textGraph);
-  const commits = graph.rows ?? [];
-  const inGraph = showGraph && focus === "graph";
-  const commit = inGraph
-    ? commits[Math.min(graphCursor, commits.length - 1)]?.commit
-    : undefined;
-
   const { behind, markUpToDate } = useBehind(pr);
   const {
     cursor: diffCursor,
@@ -482,8 +426,6 @@ export const App = ({
     rows,
     threads,
   } = useDiffData({
-    commit,
-    graph,
     moved: diffMoved,
     pr,
     screen,
@@ -499,9 +441,7 @@ export const App = ({
   // ── actions ───────────────────────────────────────────────────────────
   const withPR = (fn: (p: PR) => unknown) => () =>
     pr ? fn(pr) : flash("No pull request selected", C.dim);
-  // PR keys do nothing while browsing the graph; the sidebar's buttons still work
-  const onPRs = (fn: (p: PR) => unknown) => () =>
-    inGraph ? undefined : withPR(fn)();
+  const onPRs = withPR;
 
   const attempt = async (
     doing: string,
@@ -576,8 +516,6 @@ export const App = ({
       openInBrowser(jobCheck.url);
     } else if (screen === "checks" && check) {
       openInBrowser(check.url);
-    } else if (commit) {
-      openInBrowser(`https://github.com/${scope}/commit/${commit.hash}`);
     } else if (pr) {
       openInBrowser(pr.url);
     }
@@ -606,15 +544,12 @@ export const App = ({
   };
 
   // ── moving around ─────────────────────────────────────────────────────
-  const count = inGraph ? commits.length : list.length;
-  const setActive = inGraph ? setGraphCursor : setCursor;
   const move = (n: number) =>
-    setActive((c) => Math.max(0, Math.min(c + n, count - 1)));
+    setCursor((c) => Math.max(0, Math.min(c + n, list.length - 1)));
 
   const showQueue = (id: string) => {
     setTab(id);
     setCursor(0);
-    setFocus("prs");
     setScreen("list");
   };
   const cycleQueue = (dir: 1 | -1) => {
@@ -626,7 +561,7 @@ export const App = ({
   };
 
   const openDiff = () => {
-    if (!pr && !commit) {
+    if (!pr) {
       return;
     }
     setDiffMoved(null);
@@ -655,7 +590,7 @@ export const App = ({
   // diff: the row under the cursor gets a new comment, or a reply if it's a comment
   const comment = () => {
     const row = rows[diffCursor];
-    if (!pr || commit || !row) {
+    if (!pr || !row) {
       return;
     }
     if (row.kind === "comment") {
@@ -731,7 +666,7 @@ export const App = ({
   const commands = buildCommands({
     approve,
     back,
-    bottom: () => setActive(count - 1),
+    bottom: () => setCursor(list.length - 1),
     checks: () => {
       setChecksCursor(0);
       setScreen("checks");
@@ -745,8 +680,6 @@ export const App = ({
     edit,
     files: () => setModal({ kind: "files" }),
     filter: () => setFiltering(true),
-    focusGraph: () => showGraph && setFocus("graph"),
-    focusPRs: () => setFocus("prs"),
     half,
     help: () => setModal({ kind: "help" }),
     labels: (p) => setModal({ kind: "labels", pr: p }),
@@ -783,7 +716,6 @@ export const App = ({
     quit: () => (screen === "list" ? quit() : back()),
     refresh: () => {
       refresh();
-      graph.reload();
       threads.reload();
       checks.reload();
     },
@@ -794,13 +726,9 @@ export const App = ({
     sizes: panes.sizes,
     theme: () => setModal({ kind: "theme" }),
     toggleDraft,
-    toggleGraph: () => {
-      setGraphPane((g) => !g);
-      setFocus("prs");
-    },
     toggleRange: () => setRangeStart((r) => (r === null ? diffCursor : null)),
     toggleSidebar: () => setSidebar((s) => !s),
-    top: () => setActive(0),
+    top: () => setCursor(0),
     undo: pending.undo,
     update,
   });
@@ -834,12 +762,7 @@ export const App = ({
 
   // ── what to draw ──────────────────────────────────────────────────────
   const bodyH = height - (screen === "list" ? 7 : 5);
-  let title: ReactNode = null;
-  if (commit) {
-    title = <CommitTitle commit={commit} />;
-  } else if (pr) {
-    title = <PRTitle pr={pr} showRepo={showRepo} />;
-  }
+  const title: ReactNode = pr ? <PRTitle pr={pr} showRepo={showRepo} /> : null;
 
   const main = (): ReactNode => {
     if (screen === "diff") {
@@ -892,25 +815,13 @@ export const App = ({
         places={places}
         pr={pr}
         cursor={Math.min(cursor, Math.max(0, list.length - 1))}
-        focus={inGraph ? "graph" : "prs"}
         showRepo={showRepo}
-        handleSelectPR={(i) => {
-          setCursor(i);
-          setFocus("prs");
-        }}
+        handleSelectPR={setCursor}
         sidebar={sidebar}
         behind={behind}
         actions={prActions}
         emptyLabel={queues.find((q) => q.id === tab)?.label ?? ""}
         filter={filter}
-        graphPane={showGraph}
-        graph={graph}
-        graphCursor={graphCursor}
-        handleSelectCommit={(i) => {
-          setGraphCursor(i);
-          setFocus("graph");
-        }}
-        cell={cell}
         sizes={panes.sizes}
         resizing={panes.resizing}
         handleGrab={panes.setResizing}
@@ -961,10 +872,7 @@ export const App = ({
       </box>
       <Footer
         toast={toast}
-        hints={hintsFor(
-          commands,
-          HINTS[inGraph && screen === "list" ? "graph" : screen] ?? []
-        )}
+        hints={hintsFor(commands, HINTS[screen] ?? [])}
         width={width}
       />
       <ModalHost

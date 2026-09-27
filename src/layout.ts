@@ -2,16 +2,14 @@ import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 
-// pane widths as fractions: the graph of the whole window, the sidebar of what's right of the graph
+// the details sidebar's width, as a fraction of the window
 export interface PaneSizes {
-  graph: number;
   sidebar: number;
 }
 
-export const DEFAULT_SIZES: PaneSizes = { graph: 0.32, sidebar: 0.36 };
+export const DEFAULT_SIZES: PaneSizes = { sidebar: 0.36 };
 
 const LIMITS: Record<keyof PaneSizes, [number, number]> = {
-  graph: [0.15, 0.7],
   sidebar: [0.2, 0.7],
 };
 
@@ -31,7 +29,6 @@ export const loadSizes = async (): Promise<PaneSizes> => {
   try {
     const saved: Partial<PaneSizes> = await Bun.file(file()).json();
     return {
-      graph: clampSize("graph", saved.graph ?? DEFAULT_SIZES.graph),
       sidebar: clampSize("sidebar", saved.sidebar ?? DEFAULT_SIZES.sidebar),
     };
   } catch {

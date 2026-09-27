@@ -35,9 +35,6 @@ export interface CommandContext {
   showQueue: (id: string) => unknown;
   filter: () => unknown;
   openDiff: () => unknown;
-  focusGraph: () => unknown;
-  focusPRs: () => unknown;
-  toggleGraph: () => unknown;
   toggleSidebar: () => unknown;
   resize: (pane: keyof PaneSizes, fraction: number) => unknown;
   resetSizes: () => unknown;
@@ -266,50 +263,10 @@ export const buildCommands = (x: CommandContext): Cmd[] => {
       section: nav,
     },
     {
-      id: "focus-graph",
-      keys: ["h", "left"],
-      label: "Focus graph",
-      run: x.focusGraph,
-      screens: L,
-      section: nav,
-    },
-    {
-      id: "focus-prs",
-      keys: ["l", "right"],
-      label: "Focus PRs",
-      run: x.focusPRs,
-      screens: L,
-      section: nav,
-    },
-    {
-      id: "toggle-graph",
-      keys: ["v"],
-      label: "Toggle graph",
-      run: x.toggleGraph,
-      screens: L,
-      section: nav,
-    },
-    {
       id: "toggle-sidebar",
       keys: ["p"],
       label: "Toggle details",
       run: x.toggleSidebar,
-      screens: L,
-      section: nav,
-    },
-    {
-      id: "graph-smaller",
-      keys: ["["],
-      label: "Narrower graph",
-      run: () => x.resize("graph", x.sizes.graph - 0.03),
-      screens: L,
-      section: nav,
-    },
-    {
-      id: "graph-bigger",
-      keys: ["]"],
-      label: "Wider graph",
-      run: () => x.resize("graph", x.sizes.graph + 0.03),
       screens: L,
       section: nav,
     },
@@ -599,7 +556,6 @@ export const buildCommands = (x: CommandContext): Cmd[] => {
 export const HINTS: Record<string, string[]> = {
   checks: ["open-check", "open", "refresh", "back"],
   diff: ["comment", "next-file", "files", "next-thread", "range", "back"],
-  graph: ["open-diff", "focus-prs", "toggle-graph", "palette"],
   job: ["next-error", "prev-error", "open", "back"],
   list: [
     "open-diff",

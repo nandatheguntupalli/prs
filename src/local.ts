@@ -4,7 +4,18 @@ import type { CliRenderer } from "@opentui/core";
 
 import { repoPath } from "./config.ts";
 import type { Config } from "./config.ts";
+import { run } from "./github/client.ts";
 import type { PR } from "./github/prs.ts";
+
+// the working copy we were started in, for opening it in an editor
+export const localCheckout = async (): Promise<string | null> => {
+  try {
+    const out = await run(["git", "rev-parse", "--show-toplevel"]);
+    return out.trim();
+  } catch {
+    return null;
+  }
+};
 
 const CLIPBOARD_TOOLS = [
   ["pbcopy"],

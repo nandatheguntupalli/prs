@@ -5,14 +5,11 @@ import { useEffect, useMemo, useState } from "react";
 
 import type { Screen } from "./commands.ts";
 import type { Config } from "./config.ts";
-import { showCommit } from "./git.ts";
 import { isErrorLine, jobLog, jobSteps, listChecks } from "./github/checks.ts";
 import type { Check } from "./github/checks.ts";
 import { listThreads } from "./github/comments.ts";
 import { getDiff } from "./github/prs.ts";
 import type { PR } from "./github/prs.ts";
-import type { GraphState } from "./graph-view.tsx";
-import type { Commit } from "./graph.ts";
 import { useLoader } from "./hooks.ts";
 import { clampSize, DEFAULT_SIZES, saveSizes } from "./layout.ts";
 import type { PaneSizes } from "./layout.ts";
@@ -42,19 +39,11 @@ export const useTheme = (config: Config) => {
 
 export type Resizing = keyof PaneSizes | null;
 
-// the graph pane's width in cells; the PR pane gets the rest
-export const graphCells = (width: number, shown: boolean, size: number) =>
-  shown ? Math.min(width - 50, Math.max(24, Math.round(width * size))) : 0;
-
 export const sidebarCells = (width: number, shown: boolean, size: number) =>
   shown ? Math.min(width - 30, Math.max(28, Math.round(width * size))) : 0;
 
 // pane sizes: dragged or nudged, and saved once they settle
-export const usePaneSizes = (
-  initial: PaneSizes,
-  width: number,
-  graphPane: boolean
-) => {
+export const usePaneSizes = (initial: PaneSizes, width: number) => {
   const [sizes, setSizes] = useState(initial);
   const [resizing, setResizing] = useState<Resizing>(null);
   // only write the layout file once the user has actually resized something
@@ -79,14 +68,11 @@ export const usePaneSizes = (
     setSizes(DEFAULT_SIZES);
   };
 
-  // while a divider is held, every drag anywhere resizes its pane
+  // while the divider is held, every drag anywhere resizes the sidebar: it gets everything
+  // right of the pointer
   const dragTo = (x: number) => {
-    if (resizing === "graph") {
-      resize("graph", x / width);
-    } else if (resizing === "sidebar") {
-      const paneW =
-        width - graphCells(width, graphPane, sizes.graph) - (graphPane ? 1 : 0);
-      resize("sidebar", (width - x - 1) / paneW);
+    if (resizing === "sidebar") {
+      resize("sidebar", (width - x - 1) / width);
     }
   };
 
@@ -128,47 +114,26 @@ export const useSelection = ({
   return { list, places, pr, source };
 };
 
-// where the diff comes from: a commit picked in the graph, or the selected PR
-const diffKeyFor = (
-  screen: Screen,
-  pr: PR | undefined,
-  commit: Commit | undefined
-) => {
-  if (screen !== "diff") {
-    return null;
-  }
-  if (commit) {
-    return `commit:${commit.hash}`;
-  }
-  return pr ? `pr:${prKey(pr)}:${pr.headRefOid}` : null;
-};
-
-// the diff and its review threads, as rows ready to draw
+// the selected PR's diff and its review threads, as rows ready to draw
 export const useDiffData = ({
   screen,
   pr,
-  commit,
-  graph,
   moved,
   width,
 }: {
   screen: Screen;
   pr: PR | undefined;
-  commit: Commit | undefined;
-  graph: GraphState;
   // where the user has moved the cursor to, or null to start on the first line of code
   moved: number | null;
   width: number;
 }) => {
-  const diff = useLoader(diffKeyFor(screen, pr, commit), async () => {
-    if (commit && graph.source) {
-      return parseDiff(await showCommit(graph.source, commit.hash));
-    }
-    return parseDiff(pr ? await getDiff(pr) : "");
-  });
-  const threads = useLoader(
-    screen === "diff" && !commit && pr ? `threads:${prKey(pr)}` : null,
-    () => (pr ? listThreads(pr) : Promise.resolve([]))
+  const open = screen === "diff" && pr;
+  const diff = useLoader(
+    open ? `pr:${prKey(pr)}:${pr.headRefOid}` : null,
+    async () => parseDiff(pr ? await getDiff(pr) : "")
+  );
+  const threads = useLoader(open ? `threads:${prKey(pr)}` : null, () =>
+    pr ? listThreads(pr) : Promise.resolve([])
   );
   const rows = useMemo(
     () => withThreads(diff.value?.rows ?? [], threads.value ?? [], width - 32),

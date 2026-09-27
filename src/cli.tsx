@@ -9,8 +9,8 @@ import { App } from "./app.tsx";
 import { loadConfig } from "./config.ts";
 import { currentRepo, dryRun } from "./gh.ts";
 import type { MergeMethod, UpdateMethod } from "./gh.ts";
-import { localCheckout } from "./git.ts";
 import { loadSizes } from "./layout.ts";
+import { localCheckout } from "./local.ts";
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -21,7 +21,6 @@ const { values, positionals } = parseArgs({
     "dry-run": { type: "boolean" },
     help: { short: "h", type: "boolean" },
     method: { default: "merge", short: "m", type: "string" },
-    "text-graph": { type: "boolean" },
     update: { default: "rebase", short: "u", type: "string" },
     version: { short: "v", type: "boolean" },
   },
@@ -33,7 +32,7 @@ if (values.version) {
 }
 
 if (values.help) {
-  console.log(`prs [owner/repo] [--all] [--method merge|squash|rebase] [--update rebase|merge] [--delay seconds] [--dry-run] [--text-graph]
+  console.log(`prs [owner/repo] [--all] [--method merge|squash|rebase] [--update rebase|merge] [--delay seconds] [--dry-run]
 
 Keyboard-first PR inbox. Shows the repo in the current directory, or with --all (or
 outside a repo) your pull requests across GitHub. Settings: ~/.config/prs/config.json`);
@@ -52,7 +51,7 @@ if (!["rebase", "merge"].includes(updateMethod)) {
   process.exit(1);
 }
 
-// the repo this directory is a clone of, if any; the graph reads its history directly
+// the repo this directory is a clone of, if any; `e` can open that clone in an editor
 const here = await currentRepo().catch(() => "");
 
 // one repo, or "" for every repo you're involved in
@@ -80,7 +79,6 @@ createRoot(renderer).render(
     scope={scope}
     local={local}
     config={config}
-    textGraph={Boolean(values["text-graph"])}
     initialSizes={initialSizes}
     method={method}
     updateMethod={updateMethod}
