@@ -92,6 +92,9 @@ After a squash merge, PRs higher in the stack still carry the original commits a
   // "system" follows the terminal's light / dark mode; or "midnight", "graphite", "nord", "tokyo", "paper"
   "theme": "system",
 
+  // Nerd Font icons like the pull request icon; "plain" if your font doesn't have them
+  "icons": "nerd",
+
   // what `e` runs; {{repo}} {{owner}} {{name}} {{number}} {{headRef}} {{baseRef}} {{author}} {{url}} {{repoPath}}
   "editorCommand": "code {{repoPath}}",
 

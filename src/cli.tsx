@@ -11,6 +11,7 @@ import { currentRepo, dryRun } from "./gh.ts";
 import type { MergeMethod, UpdateMethod } from "./gh.ts";
 import { loadSizes } from "./layout.ts";
 import { localCheckout } from "./local.ts";
+import { setIconStyle } from "./ui/icons.ts";
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -61,6 +62,7 @@ dryRun.enabled = !!values["dry-run"];
 
 const local = scope && here === scope ? await localCheckout() : null;
 const [initialSizes, config] = await Promise.all([loadSizes(), loadConfig()]);
+setIconStyle(config.icons ?? "nerd");
 
 const renderer = await createCliRenderer({
   backgroundColor: "#000000",

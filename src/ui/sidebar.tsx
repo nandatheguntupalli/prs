@@ -17,6 +17,7 @@ import {
   reviewState,
   reviewStatus,
 } from "./format.ts";
+import { ICONS } from "./icons.ts";
 import type { Action } from "./keys.ts";
 import { markdownStyle } from "./markdown.ts";
 import { BOLD, Button, SectionTitle } from "./primitives.tsx";
@@ -180,7 +181,7 @@ const DetailHeader = ({
       <box flexDirection="column" paddingLeft={1} marginTop={1}>
         <text wrapMode="none">
           <span bg={pr.isDraft ? C.faint : C.blue} fg={C.bg} attributes={BOLD}>
-            {pr.isDraft ? " ◇ Draft " : " ⎇ Open "}
+            {pr.isDraft ? ` ${ICONS.draft} Draft ` : ` ${ICONS.pr} Open `}
           </span>
           <span fg={C.dim}>
             {fit(`  ${pr.baseRefName} ← ${pr.headRefName}`, width - 12)}

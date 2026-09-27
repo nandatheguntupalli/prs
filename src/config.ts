@@ -3,10 +3,13 @@ import { homedir } from "node:os";
 import path from "node:path";
 
 import type { ThemeChoice } from "./theme.ts";
+import type { IconStyle } from "./ui/icons.ts";
 
 // user settings, kept in ~/.config/prs/config.json
 export interface Config {
   theme: ThemeChoice;
+  // "nerd" (the default) uses Nerd Font glyphs like the pull-request icon; "plain" for other fonts
+  icons?: IconStyle;
   // a shell command for `e`, with {{repo}}, {{owner}}, {{name}}, {{number}}, {{headRef}},
   // {{baseRef}}, {{author}}, {{url}} and {{repoPath}} filled in
   editorCommand?: string;

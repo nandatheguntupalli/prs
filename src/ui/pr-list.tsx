@@ -3,6 +3,7 @@ import { prKey } from "../stacks.ts";
 import type { StackPlace } from "../stacks.ts";
 import { C } from "../theme.ts";
 import { age, checksStatus, compact, fit } from "./format.ts";
+import { ICONS } from "./icons.ts";
 import { BOLD } from "./primitives.tsx";
 
 // the columns on the right of each PR's first line
@@ -93,7 +94,9 @@ const PRBlock = ({
       >
         <text wrapMode="none">
           {marker}
-          <span fg={pr.isDraft ? C.faint : C.blue}>{" ⎇  "}</span>
+          <span fg={pr.isDraft ? C.faint : C.blue}>
+            {` ${pr.isDraft ? ICONS.draft : ICONS.pr}  `}
+          </span>
           <span fg={C.dim}>
             {fit(meta, Math.max(8, room - stackTag.length))}
           </span>
