@@ -109,7 +109,12 @@ const PRRow = ({
 
   return (
     <box flexDirection="column" backgroundColor={bg} onMouseDown={onSelect}>
-      <box height={1} flexDirection="row" justifyContent="space-between">
+      <box
+        height={1}
+        width={width}
+        flexDirection="row"
+        justifyContent="space-between"
+      >
         <text wrapMode="none">
           <span fg={markerColor}>{marker}</span>
           <span fg={C.blue}>{stackGlyph(stack)}</span>
@@ -130,7 +135,12 @@ const PRRow = ({
         </box>
       </box>
       {compact ? null : (
-        <box height={1} flexDirection="row" justifyContent="space-between">
+        <box
+          height={1}
+          width={width}
+          flexDirection="row"
+          justifyContent="space-between"
+        >
           <text wrapMode="none">
             <span fg={markerColor}>{marker}</span>
             <span fg={C.blue}>{stackRail(stack)}</span>
@@ -144,6 +154,19 @@ const PRRow = ({
       )}
     </box>
   );
+};
+
+// how wide the table ever needs to be: rows are only as wide as the longest title, so on a wide
+// screen each PR's status stays next to its title instead of drifting to the far edge
+export const tableContentWidth = (
+  list: PR[],
+  compact: boolean,
+  showRepo: boolean
+) => {
+  const numberW = showRepo ? 22 : 7;
+  const fixed = 6 + STATUS_W + (compact ? SIZE_W + numberW : 0);
+  const longest = Math.max(0, ...list.map((p) => p.title.length));
+  return fixed + longest + 2;
 };
 
 export const PRTable = ({
@@ -168,6 +191,7 @@ export const PRTable = ({
   onSelect: (i: number) => void;
 }) => {
   const rowH = compact ? 1 : 2;
+  const rowW = Math.min(width, tableContentWidth(list, compact, showRepo));
   const visible = Math.max(1, Math.floor(height / rowH));
   // keep the cursor roughly centered once the list is taller than the screen
   const start = Math.max(
@@ -185,7 +209,7 @@ export const PRTable = ({
           focused={focused}
           compact={compact}
           showRepo={showRepo}
-          width={width}
+          width={rowW}
           onSelect={() => onSelect(start + i)}
         />
       ))}

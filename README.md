@@ -29,7 +29,7 @@ Press `?` for every key, or `ctrl+p` to find any action by name.
 
 In a repo, the queues are **All**, **Mine**, and **Review requested**. With `--all` they're **Mine**, **Review requested**, and **Involved**, across every repo.
 
-| key | |
+| key |  |
 | --- | --- |
 | `m` | **merge** (and delete the branch) |
 | `x` | close |
@@ -48,17 +48,17 @@ Merges and closes wait a few seconds before running, like Superhuman's undo send
 
 ## Moving around
 
-| key | |
-| --- | --- |
-| `j` / `k`, `gg` / `G` | move, top, bottom |
-| `ctrl+d` / `ctrl+u` | page down / up |
-| `tab` / `1`–`3` | switch queues |
-| `/` | filter by title, author, branch, or number |
-| `⏎` / `d` | diff |
-| `h` / `l` | move between the graph and the PRs |
-| `v` / `p` | show or hide the graph / the details |
-| `[` `]` / `{` `}` / `=` | resize the graph / the details / reset |
-| `t` | theme |
+| key                     |                                            |
+| ----------------------- | ------------------------------------------ |
+| `j` / `k`, `gg` / `G`   | move, top, bottom                          |
+| `ctrl+d` / `ctrl+u`     | page down / up                             |
+| `tab` / `1`–`3`         | switch queues                              |
+| `/`                     | filter by title, author, branch, or number |
+| `⏎` / `d`               | diff                                       |
+| `h` / `l`               | move between the graph and the PRs         |
+| `v` / `p`               | show or hide the graph / the details       |
+| `[` `]` / `{` `}` / `=` | resize the graph / the details / reset     |
+| `t`                     | theme                                      |
 
 The mouse works too: click rows, tabs, and the sidebar's buttons, and drag the lines between panes to resize them.
 
@@ -66,14 +66,14 @@ The mouse works too: click rows, tabs, and the sidebar's buttons, and drag the l
 
 The diff shows line numbers, each file under its own header, and review comments inline under the lines they're on (outdated ones under their file).
 
-| key | |
-| --- | --- |
-| `]` / `[` | next / previous file |
-| `f` | jump to a file |
-| `n` / `p` | next / previous comment thread |
-| `⏎` | comment on the line, or reply on a thread |
-| `v` | select lines, then `⏎` to comment on the range |
-| `J` / `K` | next / previous PR |
+| key       |                                                |
+| --------- | ---------------------------------------------- |
+| `]` / `[` | next / previous file                           |
+| `f`       | jump to a file                                 |
+| `n` / `p` | next / previous comment thread                 |
+| `⏎`       | comment on the line, or reply on a thread      |
+| `v`       | select lines, then `⏎` to comment on the range |
+| `J` / `K` | next / previous PR                             |
 
 ## Stacked PRs
 
@@ -107,8 +107,8 @@ Run `prs` inside a clone and the graph reads that clone's history. Anywhere else
   "repoPaths": {
     "useTaiga/siberia": "~/VS/siberia",
     "useTaiga/*": "~/code/useTaiga/*",
-    ":owner/:repo": "~/src/:owner/:repo"
-  }
+    ":owner/:repo": "~/src/:owner/:repo",
+  },
 }
 ```
 

@@ -63,7 +63,7 @@ import {
   ReviewModal,
   ThemeModal,
 } from "./ui/modals.tsx";
-import { PRTable, pageSize } from "./ui/pr-list.tsx";
+import { PRTable, pageSize, tableContentWidth } from "./ui/pr-list.tsx";
 import { BOLD, Centered } from "./ui/primitives.tsx";
 import { Sidebar } from "./ui/sidebar.tsx";
 import type { PRActions } from "./ui/sidebar.tsx";
@@ -189,7 +189,11 @@ interface ListProps {
 const ListScreen = (p: ListProps) => {
   const graphW = graphCells(p.width, p.graphPane, p.sizes.graph);
   const paneW = p.width - graphW - (p.graphPane ? 1 : 0);
-  const sideW = sidebarCells(paneW, p.sidebar, p.sizes.sidebar);
+  // the table never needs to be wider than its content; any extra width goes to the details
+  const tableW = tableContentWidth(p.list, p.compact, p.showRepo);
+  const sideW = p.sidebar
+    ? Math.max(sidebarCells(paneW, true, p.sizes.sidebar), paneW - 1 - tableW)
+    : 0;
   const showSidebar = Boolean(p.pr) && p.sidebar;
   return (
     <box flexGrow={1} flexDirection="row">
