@@ -8,6 +8,7 @@ import { useEffect, useEffectEvent, useState } from "react";
 import type { ReactNode } from "react";
 
 import { buildCommands, HINTS } from "./bindings.ts";
+import type { ListCache } from "./cache.ts";
 import { hintsFor, keymapFor } from "./commands.ts";
 import type { Screen } from "./commands.ts";
 import type { Config } from "./config.ts";
@@ -68,6 +69,7 @@ export const App = ({
   delay,
   dryRun,
   initialSizes,
+  cached,
   config,
   onQuit,
 }: {
@@ -79,6 +81,7 @@ export const App = ({
   delay: number;
   dryRun: boolean;
   initialSizes: PaneSizes;
+  cached: ListCache;
   config: Config;
   onQuit: () => void;
 }) => {
@@ -96,7 +99,8 @@ export const App = ({
     scope,
     me.value ?? "",
     flash,
-    config.sections ?? []
+    config.sections ?? [],
+    cached
   );
   const [settled, setSettled] = useState(0);
   const pending = usePendingAction({
@@ -587,7 +591,7 @@ export const App = ({
     }
     return (
       <ListScreen
-        prs={lists ? source : null}
+        prs={lists[tab] ? source : null}
         list={list}
         places={places}
         statusOf={statusFor}
@@ -636,7 +640,7 @@ export const App = ({
       {screen === "list" ? (
         <TabBar
           tabs={queues.map((q) => ({
-            count: lists?.[q.id]?.length,
+            count: lists[q.id]?.length,
             id: q.id,
             label: q.label,
           }))}

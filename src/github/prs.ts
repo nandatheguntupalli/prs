@@ -163,6 +163,33 @@ const toPR = (p: RawPR): PR => {
   };
 };
 
+// Diff stats and the CI rollup cost GitHub work per PR, so 100 PRs in one query take 7-9s
+// and can time out. Listing just the IDs, then fetching the fields in parallel chunks, takes ~2s.
+const CHUNK = 10;
+
+const hydrate = async (ids: string[]): Promise<PR[]> => {
+  const octokit = await api();
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    chunks.push(ids.slice(i, i + CHUNK));
+  }
+  const pages = await Promise.all(
+    chunks.map((chunk) =>
+      octokit.graphql<{ nodes: (RawPR | null)[] }>(
+        `${PR_FIELDS}
+        query ($ids: [ID!]!) {
+          nodes(ids: $ids) { ...PRFields }
+        }`,
+        { ids: chunk }
+      )
+    )
+  );
+  return pages
+    .flatMap((page) => page.nodes)
+    .filter((n): n is RawPR => n !== null)
+    .map(toPR);
+};
+
 // Listed from the repo rather than search, since search can lag a merge by a few seconds.
 export const listRepoPRs = async (
   repo: string,
@@ -171,35 +198,35 @@ export const listRepoPRs = async (
   const octokit = await api();
   const order = state === "OPEN" ? "CREATED_AT" : "UPDATED_AT";
   const data = await octokit.graphql<{
-    repository: { pullRequests: { nodes: RawPR[] } };
+    repository: { pullRequests: { nodes: { id: string }[] } };
   }>(
-    `${PR_FIELDS}
-    query ($owner: String!, $repo: String!, $state: PullRequestState!, $count: Int!) {
+    `query ($owner: String!, $repo: String!, $state: PullRequestState!, $count: Int!) {
       repository(owner: $owner, name: $repo) {
         pullRequests(states: [$state], first: $count, orderBy: { field: ${order}, direction: DESC }) {
-          nodes { ...PRFields }
+          nodes { id }
         }
       }
     }`,
     { ...split(repo), count: state === "OPEN" ? 100 : 50, state }
   );
-  return data.repository.pullRequests.nodes.map(toPR);
+  return hydrate(data.repository.pullRequests.nodes.map((n) => n.id));
 };
 
 export const searchPRs = async (query: string): Promise<PR[]> => {
   const octokit = await api();
   const data = await octokit.graphql<{
-    search: { nodes: (RawPR | Record<string, never>)[] };
+    search: { nodes: { id?: string }[] };
   }>(
-    `${PR_FIELDS}
-    query ($q: String!) {
+    `query ($q: String!) {
       search(query: $q, type: ISSUE, first: 100) {
-        nodes { ...PRFields }
+        nodes { ... on PullRequest { id } }
       }
     }`,
     { q: `${query} sort:updated-desc` }
   );
-  return data.search.nodes.filter((n): n is RawPR => "number" in n).map(toPR);
+  return hydrate(
+    data.search.nodes.flatMap((n) => (n.id === undefined ? [] : [n.id]))
+  );
 };
 
 export const getDiff = async (pr: PR) => {

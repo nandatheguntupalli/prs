@@ -1,5 +1,7 @@
-import { useEffect, useEffectEvent, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 
+import { saveCache } from "../cache.ts";
+import type { ListCache } from "../cache.ts";
 import { errorMessage } from "../github/client.ts";
 import { listRepoPRs, searchPRs } from "../github/prs.ts";
 import type { PR } from "../github/prs.ts";
@@ -51,52 +53,90 @@ const sectionQuery = (section: Section, scope: string) => {
   return parts.join(" ");
 };
 
-const fetchQueues = async (scope: string, sections: Section[]) => {
-  const custom = sections.map((s) => searchPRs(sectionQuery(s, scope)));
+interface Job {
+  id: string;
+  // names the query for the cache
+  key: string;
+  load: () => Promise<PR[]>;
+}
+
+// Each list is fetched on its own, so the tab you land on doesn't wait for the others.
+const queueJobs = (scope: string, sections: Section[]): Job[] => {
+  const custom = sections.map((s, i): Job => {
+    const query = sectionQuery(s, scope);
+    return { id: `section-${i}`, key: query, load: () => searchPRs(query) };
+  });
   if (scope) {
-    const [open, merged, closed, ...rest] = await Promise.all([
-      listRepoPRs(scope),
-      listRepoPRs(scope, "MERGED"),
-      listRepoPRs(scope, "CLOSED"),
+    return [
+      { id: "all", key: "open", load: () => listRepoPRs(scope) },
+      { id: "merged", key: "merged", load: () => listRepoPRs(scope, "MERGED") },
+      { id: "closed", key: "closed", load: () => listRepoPRs(scope, "CLOSED") },
       ...custom,
-    ]);
-    return {
-      all: open ?? [],
-      closed: closed ?? [],
-      merged: merged ?? [],
-      ...Object.fromEntries(rest.map((list, i) => [`section-${i}`, list])),
-    };
+    ];
   }
-  const lists = await Promise.all([
-    ...GLOBAL_QUEUES.map((q) => searchPRs(GLOBAL_QUERIES[q.id] ?? "")),
+  return [
+    ...GLOBAL_QUEUES.map((q): Job => {
+      const query = GLOBAL_QUERIES[q.id] ?? "";
+      return { id: q.id, key: query, load: () => searchPRs(query) };
+    }),
     ...custom,
-  ]);
-  return Object.fromEntries([
-    ...GLOBAL_QUEUES.map((q, i) => [q.id, lists[i] ?? []]),
-    ...sections.map((_, i) => [
-      `section-${i}`,
-      lists[GLOBAL_QUEUES.length + i] ?? [],
-    ]),
-  ]) as Record<string, PR[]>;
+  ];
 };
 
 export const useQueues = (
   scope: string,
   me: string,
   flash: Flash,
-  sections: Section[]
+  sections: Section[],
+  cached: ListCache
 ) => {
-  const [data, setData] = useState<Record<string, PR[]> | null>(null);
+  // start from the last session's lists; the spinner shows until they're replaced
+  const [data, setData] = useState<Record<string, PR[]>>(() =>
+    Object.fromEntries(
+      queueJobs(scope, sections).flatMap((job) => {
+        const list = cached[job.key];
+        return list ? [[job.id, list]] : [];
+      })
+    )
+  );
   const [busy, setBusy] = useState(true);
+  // a refresh started later wins over one still in flight
+  const generation = useRef(0);
+  const saved = useRef(cached);
 
   const fetchAll = async () => {
-    try {
-      setData(await fetchQueues(scope, sections));
-    } catch (error) {
-      flash(`✗ ${errorMessage(error)}`, C.red);
-      setData((d) => d ?? {});
+    generation.current += 1;
+    const { current } = generation;
+    const jobs = queueJobs(scope, sections);
+    const fresh: ListCache = {};
+    await Promise.all(
+      jobs.map(async ({ id, key, load }) => {
+        try {
+          const list = await load();
+          fresh[key] = list;
+          if (generation.current === current) {
+            setData((d) => ({ ...d, [id]: list }));
+          }
+        } catch (error) {
+          if (generation.current === current) {
+            flash(`✗ ${errorMessage(error)}`, C.red);
+            // keep what was there, but don't leave the tab loading forever
+            setData((d) => ({ ...d, [id]: d[id] ?? [] }));
+          }
+        }
+      })
+    );
+    if (generation.current === current) {
+      setBusy(false);
+      // lists that failed keep their last good copy; dropped sections fall out
+      saved.current = Object.fromEntries(
+        jobs.flatMap(({ key }) => {
+          const list = fresh[key] ?? saved.current[key];
+          return list ? [[key, list]] : [];
+        })
+      );
+      saveCache(scope, saved.current);
     }
-    setBusy(false);
   };
 
   const refresh = () => {
@@ -112,9 +152,9 @@ export const useQueues = (
     go();
   }, []);
 
-  let lists: Record<string, PR[]> | null = data;
-  if (scope && data) {
-    const all = data.all ?? [];
+  let lists: Record<string, PR[]> = data;
+  if (scope && data.all) {
+    const { all } = data;
     lists = {
       ...data,
       mine: all.filter((p) => p.author === me),

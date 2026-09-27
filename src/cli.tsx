@@ -6,6 +6,7 @@ import { createRoot } from "@opentui/react";
 
 import pkg from "../package.json";
 import { App } from "./app.tsx";
+import { loadCache } from "./cache.ts";
 import { loadConfig } from "./config.ts";
 import { currentRepo, dryRun } from "./github/client.ts";
 import type { MergeMethod, UpdateMethod } from "./github/prs.ts";
@@ -61,7 +62,11 @@ const scope = values.all ? "" : (positionals[0] ?? here);
 dryRun.enabled = !!values["dry-run"];
 
 const local = scope && here === scope ? await localCheckout() : null;
-const [initialSizes, config] = await Promise.all([loadSizes(), loadConfig()]);
+const [initialSizes, config, cached] = await Promise.all([
+  loadSizes(),
+  loadConfig(),
+  loadCache(scope),
+]);
 setIconStyle(config.icons ?? "nerd");
 
 const renderer = await createCliRenderer({
@@ -82,6 +87,7 @@ createRoot(renderer).render(
     local={local}
     config={config}
     initialSizes={initialSizes}
+    cached={cached}
     method={method}
     updateMethod={updateMethod}
     delay={Number(values.delay)}

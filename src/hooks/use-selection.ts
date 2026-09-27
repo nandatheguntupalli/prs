@@ -28,7 +28,7 @@ export const useSelection = ({
   scope,
   cursor,
 }: {
-  lists: Record<string, PR[]> | null;
+  lists: Record<string, PR[]>;
   tab: string;
   filter: string;
   landed: ReadonlyMap<string, Landed>;
@@ -41,11 +41,11 @@ export const useSelection = ({
       `#${p.number} ${p.title} ${p.author} ${p.headRefName} ${p.repo}`.toLowerCase();
     return terms.every((t) => text.includes(t));
   };
-  const source = withLanded(lists?.[tab] ?? [], tab, landed);
+  const source = withLanded(lists[tab] ?? [], tab, landed);
   const visible = source.filter(matches);
   // use every open PR so a stack shows whole even when filtered
   const places = findStacks(
-    (scope ? (lists?.all ?? []) : source).filter((p) => p.state === "OPEN")
+    (scope ? (lists.all ?? []) : source).filter((p) => p.state === "OPEN")
   );
   const list = groupStacks(visible, places);
   const pr = list[Math.min(cursor, list.length - 1)];
