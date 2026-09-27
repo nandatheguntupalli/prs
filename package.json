@@ -15,7 +15,8 @@
   },
   "scripts": {
     "start": "bun src/cli.tsx",
-    "build": "bun scripts/build.ts"
+    "build": "bun scripts/build.ts",
+    "release": "bun scripts/bump.ts"
   },
   "version": "0.1.0"
 }

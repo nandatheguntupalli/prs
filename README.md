@@ -45,9 +45,8 @@ bun run build         # standalone binary at dist/prs
 
 ## Releasing
 
-Push a tag. CI builds binaries for macOS and Linux, publishes a GitHub release, and updates the formula in [homebrew-tap](https://github.com/nandatheguntupalli/homebrew-tap).
-
 ```sh
-npm version patch     # bumps package.json and tags vX.Y.Z
-git push --follow-tags
+bun run release       # patch; or: bun run release minor | major | 1.2.3
 ```
+
+That bumps the version, tags it, and pushes. CI then runs `scripts/release.ts`, which builds binaries for macOS and Linux, publishes a GitHub release, and updates the formula in [homebrew-tap](https://github.com/nandatheguntupalli/homebrew-tap).
