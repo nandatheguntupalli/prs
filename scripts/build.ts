@@ -2,16 +2,21 @@
 import type { Build } from "bun";
 
 export async function build(target?: Build.CompileTarget, outfile = "dist/prs") {
+  // OpenTUI statically imports a native lib package for every platform; keep only the one we're building for
+  const platform = target ? target.replace(/^bun-/, "") : `${process.platform}-${process.arch}`;
+
   const result = await Bun.build({
     entrypoints: ["src/cli.tsx"],
     minify: true,
     compile: target ? { target, outfile } : { outfile },
     plugins: [
       {
-        // Ink only imports react-devtools-core when DEV=true, but the bundler still tries to resolve it
-        name: "stub-devtools",
+        name: "stub-unused",
         setup(build) {
           build.onResolve({ filter: /^react-devtools-core$/ }, (args) => ({ path: args.path, namespace: "stub" }));
+          build.onResolve({ filter: /^@opentui\/core-[\w-]+$/ }, (args) =>
+            args.path === `@opentui/core-${platform}` ? undefined : { path: args.path, namespace: "stub" },
+          );
           build.onLoad({ filter: /.*/, namespace: "stub" }, () => ({ contents: "export default {}", loader: "js" }));
         },
       },

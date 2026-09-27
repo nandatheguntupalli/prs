@@ -1,6 +1,6 @@
 # prs
 
-Superhuman for pull requests. A keyboard-first TUI for clearing your PR inbox.
+Superhuman for pull requests. A keyboard-first TUI for clearing your PR inbox, built on [OpenTUI](https://github.com/anomalyco/opentui).
 
 ## Install
 
@@ -20,18 +20,22 @@ prs --delay 2         # seconds before a merge fires (default 4)
 prs --dry-run         # nothing is merged or approved
 ```
 
-| key | list | detail |
+| key | list | diff |
 | --- | --- | --- |
 | `j` / `k` | move | scroll |
-| `⏎` | open diff | |
+| `⏎` / `d` | open diff | |
 | `m` | **merge** (and delete branch) | merge |
 | `z` | undo the pending merge | undo |
 | `a` | approve | approve |
 | `o` | open in browser | open in browser |
+| `tab` / `1` `2` `3` | switch between All, Mine, Review requested | |
+| `p` | toggle the sidebar | |
 | `space` / `b` | | page down / up |
 | `J` / `K` | | next / prev PR |
 | `r` | refresh | refresh |
 | `q` / `esc` | quit | back |
+
+The mouse works too: click a row to select it, click a tab, or click **Merge** in the sidebar.
 
 Merges wait a few seconds before running, like Superhuman's undo send. Hit `z` to take it back. Quitting while a merge is pending runs it right away.
 

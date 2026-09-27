@@ -17,10 +17,11 @@ export type PR = {
   url: string;
   body: string;
   checks: Checks;
+  reviewRequests: string[];
 };
 
 const FIELDS =
-  "number,title,author,createdAt,headRefName,baseRefName,isDraft,reviewDecision,mergeable,additions,deletions,changedFiles,url,body,statusCheckRollup";
+  "number,title,author,createdAt,headRefName,baseRefName,isDraft,reviewDecision,mergeable,additions,deletions,changedFiles,url,body,statusCheckRollup,reviewRequests";
 
 async function gh(args: string[]): Promise<string> {
   const proc = Bun.spawn(["gh", ...args], { stdout: "pipe", stderr: "pipe" });
@@ -49,6 +50,10 @@ export async function currentRepo(): Promise<string> {
   return (await gh(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"])).trim();
 }
 
+export async function viewer(): Promise<string> {
+  return (await gh(["api", "user", "-q", ".login"])).trim();
+}
+
 export async function listPRs(repo: string): Promise<PR[]> {
   const raw = JSON.parse(await gh(["pr", "list", "-R", repo, "--limit", "100", "--json", FIELDS]));
   return raw.map((p: any) => ({
@@ -56,6 +61,7 @@ export async function listPRs(repo: string): Promise<PR[]> {
     author: p.author?.login ?? "ghost",
     checks: summarizeChecks(p.statusCheckRollup),
     statusCheckRollup: undefined,
+    reviewRequests: (p.reviewRequests ?? []).map((r: any) => r.login ?? r.slug ?? r.name).filter(Boolean),
   }));
 }
 

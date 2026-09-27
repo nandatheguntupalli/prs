@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
-import React from "react";
-import { render } from "ink";
+import { createCliRenderer } from "@opentui/core";
+import { createRoot } from "@opentui/react";
 import { parseArgs } from "node:util";
 import { App } from "./app.tsx";
 import pkg from "../package.json";
@@ -48,8 +48,18 @@ if (!repo) {
 
 dryRun.enabled = !!values["dry-run"];
 
-// alternate screen so the TUI takes over the terminal and leaves no mess behind
-process.stdout.write("\x1b[?1049h\x1b[H");
-const app = render(<App repo={repo} method={method} delay={Number(values.delay)} />, { exitOnCtrlC: false });
-await app.waitUntilExit();
-process.stdout.write("\x1b[?1049l");
+const renderer = await createCliRenderer({
+  exitOnCtrlC: false,
+  screenMode: "alternate-screen",
+  backgroundColor: "#000000",
+  useMouse: true,
+});
+
+const quit = () => {
+  renderer.destroy();
+  process.exit(0);
+};
+
+createRoot(renderer).render(
+  <App repo={repo} method={method} delay={Number(values.delay)} dryRun={dryRun.enabled} onQuit={quit} />,
+);
