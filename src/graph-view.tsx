@@ -323,13 +323,7 @@ export const GraphView = ({
   );
   if (!rows?.length) {
     return (
-      <box
-        width={width}
-        flexDirection="column"
-        border={["right"]}
-        borderColor={C.border}
-        paddingLeft={1}
-      >
+      <box width={width} flexDirection="column" paddingLeft={1}>
         {header}
         <text fg={C.dim} marginTop={1} wrapMode="word">
           {status || "Loading history…"}
@@ -337,8 +331,8 @@ export const GraphView = ({
       </box>
     );
   }
-  // inside the pane: left padding and the right border
-  const inner = width - 2;
+  // inside the pane: its left padding
+  const inner = width - 1;
   const listH = height - 1;
   const start = Math.max(
     0,
@@ -355,13 +349,7 @@ export const GraphView = ({
       Math.max(...visible.map((r) => trimCells(r.cells).length))
     );
     return (
-      <box
-        width={width}
-        flexDirection="column"
-        border={["right"]}
-        borderColor={C.border}
-        paddingLeft={1}
-      >
+      <box width={width} flexDirection="column" paddingLeft={1}>
         {header}
         <box flexDirection="row">
           <PixelGraph
@@ -390,13 +378,7 @@ export const GraphView = ({
   }
 
   return (
-    <box
-      width={width}
-      flexDirection="column"
-      border={["right"]}
-      borderColor={C.border}
-      paddingLeft={1}
-    >
+    <box width={width} flexDirection="column" paddingLeft={1}>
       {header}
       {visible.map((row, i) => (
         <CommitRow

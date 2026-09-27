@@ -34,13 +34,16 @@ prs --text-graph      # draw the graph with characters, even if the terminal can
 | `tab` / `1`–`3` | switch between All, Mine, Review requested |  |
 | `h` / `l` | move between the graph and the PR list | back / |
 | `v` | show or hide the graph |  |
+| `[` / `]` | shrink / grow the graph |  |
+| `{` / `}` | shrink / grow the sidebar |  |
+| `=` | reset pane sizes |  |
 | `p` | toggle the sidebar |  |
 | `space` / `b` |  | page down / up |
 | `J` / `K` |  | next / prev |
 | `r` | refresh | refresh |
 | `q` / `esc` | quit | back |
 
-The mouse works too: click a row, a tab, or the **Merge**, **Update**, and **Close** buttons in the sidebar. The sidebar shows how far a PR's branch is behind its base, and **Update** appears when it is.
+The mouse works too: click a row, a tab, or the **Merge**, **Update**, and **Close** buttons in the sidebar, and drag the lines between panes to resize them. Pane sizes are remembered in `~/.config/prs/layout.json`. The sidebar shows how far a PR's branch is behind its base, and **Update** appears when it is.
 
 ## Graph
 

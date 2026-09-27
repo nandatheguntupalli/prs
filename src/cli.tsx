@@ -9,6 +9,7 @@ import { App } from "./app.tsx";
 import { currentRepo, dryRun } from "./gh.ts";
 import type { MergeMethod } from "./gh.ts";
 import { localCheckout } from "./git.ts";
+import { loadSizes } from "./layout.ts";
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -53,6 +54,7 @@ if (!repo) {
 dryRun.enabled = !!values["dry-run"];
 
 const local = here === repo ? await localCheckout() : null;
+const initialSizes = await loadSizes();
 
 const renderer = await createCliRenderer({
   backgroundColor: "#000000",
@@ -71,6 +73,7 @@ createRoot(renderer).render(
     repo={repo}
     local={local}
     textGraph={Boolean(values["text-graph"])}
+    initialSizes={initialSizes}
     method={method}
     delay={Number(values.delay)}
     dryRun={dryRun.enabled}

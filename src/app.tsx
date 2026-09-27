@@ -1,7 +1,7 @@
 import { TextAttributes } from "@opentui/core";
 import type { KeyEvent } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import { useEffect, useEffectEvent, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import {
@@ -21,6 +21,8 @@ import type { CellPixels, GraphState } from "./graph-view.tsx";
 import type { Commit } from "./graph.ts";
 import { useBehind, useDiff, usePendingAction } from "./hooks.ts";
 import type { DiffTarget, PendingKind } from "./hooks.ts";
+import { clampSize, DEFAULT_SIZES, saveSizes } from "./layout.ts";
+import type { PaneSizes } from "./layout.ts";
 import { C } from "./theme.ts";
 
 const { BOLD } = TextAttributes;
@@ -229,8 +231,6 @@ const Sidebar = ({
     <box
       width={width}
       flexDirection="column"
-      border={["left"]}
-      borderColor={C.border}
       paddingLeft={2}
       paddingRight={1}
       overflow="hidden"
@@ -351,7 +351,7 @@ const HINTS = {
   diff: "j/k scroll · space/b page · J/K next/prev · m merge · a approve · x close · o open · esc back",
   graph:
     "j/k move · h/l switch pane · ⏎ show commit · o open on GitHub · r fetch · v hide graph · q quit",
-  list: "j/k move · h/l switch pane · ⏎ diff · m merge · a approve · u update · x close · o open · z undo · tab switch · v graph · p sidebar · q quit",
+  list: "j/k move · h/l switch pane · ⏎ diff · m merge · a approve · u update · x close · o open · z undo · tab switch · v graph · p sidebar · [ ] { } resize · q quit",
 };
 
 const Footer = ({
@@ -564,6 +564,29 @@ const diffTitle = (pr: PR | undefined, commit: Commit | undefined) => {
   return pr ? <PRTitle pr={pr} /> : null;
 };
 
+// the line between two panes. Grabbing it starts a resize; the drag itself is handled at the
+// app's root, since terminals report motion a cell at a time and the pointer leaves a 1-cell line at once
+const Divider = ({ active, onGrab }: { active: boolean; onGrab: Action }) => {
+  const [hot, setHot] = useState(false);
+  return (
+    <box
+      width={1}
+      flexShrink={0}
+      border={["left"]}
+      borderColor={hot || active ? C.accent : C.border}
+      onMouseOver={() => setHot(true)}
+      onMouseOut={() => setHot(false)}
+      onMouseDown={onGrab}
+    />
+  );
+};
+
+type Resizing = keyof PaneSizes | null;
+
+// the graph pane's width in cells; the PR pane gets the rest
+const graphCells = (width: number, graphPane: boolean, size: number) =>
+  graphPane ? Math.min(width - 50, Math.max(24, Math.round(width * size))) : 0;
+
 // the PR table with its detail sidebar, or a loading / empty message in its place
 const PRPane = ({
   prs,
@@ -576,6 +599,9 @@ const PRPane = ({
   behind,
   actions,
   emptyLabel,
+  sidebarSize,
+  resizing,
+  onGrabDivider,
   width,
   height,
 }: {
@@ -589,6 +615,9 @@ const PRPane = ({
   behind: number | undefined;
   actions: PRActions;
   emptyLabel: string;
+  sidebarSize: number;
+  resizing: Resizing;
+  onGrabDivider: Action;
   width: number;
   height: number;
 }) => {
@@ -609,17 +638,22 @@ const PRPane = ({
       </Centered>
     );
   }
-  const sideW = sidebar ? Math.max(34, Math.floor(width * 0.42)) : 0;
+  const sideW = sidebar
+    ? Math.min(width - 30, Math.max(28, Math.round(width * sidebarSize)))
+    : 0;
   return (
     <box flexGrow={1} flexDirection="row">
       <PRTable
         list={list}
         cursor={cursor}
         focused={focused}
-        width={width - sideW}
+        width={width - sideW - (sidebar ? 1 : 0)}
         height={height}
         onSelect={onSelect}
       />
+      {sidebar ? (
+        <Divider active={resizing === "sidebar"} onGrab={onGrabDivider} />
+      ) : null}
       {sidebar ? (
         <Sidebar pr={pr} width={sideW} behind={behind} actions={actions} />
       ) : null}
@@ -640,6 +674,9 @@ const MainView = ({
   commit,
   diffLines,
   scroll,
+  graphSize,
+  resizing,
+  onGrabDivider,
   width,
   height,
   prPane,
@@ -655,6 +692,9 @@ const MainView = ({
   commit: Commit | undefined;
   diffLines: string[] | null;
   scroll: number;
+  graphSize: number;
+  resizing: Resizing;
+  onGrabDivider: Action;
   width: number;
   height: number;
   prPane: (width: number, height: number) => ReactNode;
@@ -673,7 +713,7 @@ const MainView = ({
       />
     );
   }
-  const graphW = graphPane ? Math.max(44, Math.floor(width * 0.4)) : 0;
+  const graphW = graphCells(width, graphPane, graphSize);
   return (
     <box flexGrow={1} flexDirection="row">
       {graphPane ? (
@@ -688,6 +728,9 @@ const MainView = ({
           onSelect={onSelectCommit}
         />
       ) : null}
+      {graphPane ? (
+        <Divider active={resizing === "graph"} onGrab={onGrabDivider} />
+      ) : null}
       {prPane(width - graphW - (graphPane ? 1 : 0), bodyH)}
     </box>
   );
@@ -700,9 +743,11 @@ export const App = ({
   delay,
   dryRun,
   textGraph,
+  initialSizes,
   onQuit,
 }: {
   repo: string;
+  initialSizes: PaneSizes;
   local: string | null;
   // draw the graph with characters even when the terminal can show images
   textGraph: boolean;
@@ -719,6 +764,32 @@ export const App = ({
   const [graphCursor, setGraphCursor] = useState(0);
   const [focus, setFocus] = useState<Focus>("prs");
   const [graphPane, setGraphPane] = useState(true);
+  const [sizes, setSizes] = useState(initialSizes);
+  const [resizing, setResizing] = useState<Resizing>(null);
+  // only write the layout file once the user has actually resized something
+  const resized = useRef(false);
+
+  useEffect(() => {
+    if (!resized.current) {
+      return;
+    }
+    // dragging fires many updates; save once it settles
+    const timer = setTimeout(() => saveSizes(sizes), 400);
+    return () => clearTimeout(timer);
+  }, [sizes]);
+
+  const resize = (pane: keyof PaneSizes, fraction: number) => {
+    resized.current = true;
+    setSizes((s) => ({ ...s, [pane]: clampSize(pane, fraction) }));
+  };
+
+  const nudge = (pane: keyof PaneSizes, delta: number) =>
+    resize(pane, sizes[pane] + delta);
+
+  const resetSizes = () => {
+    resized.current = true;
+    setSizes(DEFAULT_SIZES);
+  };
   const [view, setView] = useState<"list" | "diff">("list");
   const [sidebar, setSidebar] = useState(true);
   const [scroll, setScroll] = useState(0);
@@ -812,6 +883,10 @@ export const App = ({
 
   const quit = async () => {
     await pending.flush();
+    // the resize save waits for dragging to settle; don't lose it by quitting first
+    if (resized.current) {
+      await saveSizes(sizes);
+    }
     onQuit();
   };
 
@@ -910,6 +985,11 @@ export const App = ({
       ...TABS.flatMap((t, i) => bind([String(i + 1)], () => selectTab(t.id))),
       ...bind(["p"], () => setSidebar((s) => !s)),
       ...bind(["v"], toggleGraph),
+      ...bind(["["], () => nudge("graph", -0.03)),
+      ...bind(["]"], () => nudge("graph", 0.03)),
+      ...bind(["{"], () => nudge("sidebar", -0.03)),
+      ...bind(["}"], () => nudge("sidebar", 0.03)),
+      ...bind(["="], resetSizes),
       ...bind(["h", "left"], focusGraph),
       ...bind(["l", "right"], () => setFocus("prs")),
       ...bind(["u"], onPRs(prActions.handleUpdate)),
@@ -946,6 +1026,9 @@ export const App = ({
       behind={behind}
       actions={prActions}
       emptyLabel={TABS.find((t) => t.id === tab)?.label ?? ""}
+      sidebarSize={sizes.sidebar}
+      resizing={resizing}
+      onGrabDivider={() => setResizing("sidebar")}
       width={paneW}
       height={paneH}
     />
@@ -964,11 +1047,25 @@ export const App = ({
       commit={commit}
       diffLines={diffLines}
       scroll={scroll}
+      graphSize={sizes.graph}
+      resizing={resizing}
+      onGrabDivider={() => setResizing("graph")}
       width={width}
       height={height}
       prPane={prPane}
     />
   );
+
+  // while a divider is held, every drag anywhere resizes its pane
+  const dragTo = (x: number) => {
+    if (resizing === "graph") {
+      resize("graph", x / width);
+    } else if (resizing === "sidebar") {
+      // the PR pane runs to the right edge, so the sidebar gets everything right of the pointer
+      const paneW = width - graphCells(width, graphPane, sizes.graph) - 1;
+      resize("sidebar", (width - x - 1) / paneW);
+    }
+  };
 
   const counts = prs
     ? {
@@ -984,6 +1081,8 @@ export const App = ({
       width={width}
       height={height}
       backgroundColor={C.bg}
+      onMouseDrag={(event) => dragTo(event.x)}
+      onMouseUp={() => setResizing(null)}
     >
       <Header repo={repo} busy={busy} dryRun={dryRun} method={method} />
       <TabBar tab={tab} counts={counts} onSelect={selectTab} />
