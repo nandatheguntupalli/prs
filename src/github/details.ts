@@ -61,6 +61,8 @@ export interface CommitItem {
   message: string;
   author: string;
   date: string;
+  // more than one parent: a merge, like "Merge branch 'main' into …"
+  merge: boolean;
 }
 
 export const listCommits = async (pr: PR): Promise<CommitItem[]> => {
@@ -73,6 +75,7 @@ export const listCommits = async (pr: PR): Promise<CommitItem[]> => {
   return commits.map((c) => ({
     author: c.author?.login ?? c.commit.author?.name ?? "",
     date: c.commit.author?.date ?? "",
+    merge: c.parents.length > 1,
     message: c.commit.message.split("\n")[0] ?? "",
     sha: c.sha.slice(0, 7),
   }));

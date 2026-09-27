@@ -329,6 +329,8 @@ const Activity = ({ pr }: { pr: PR }) => {
   );
 };
 
+// the PR's commits on one line, oldest at the top: a dot per commit (a ring for merges) joined
+// to the next by the line running down the left
 const Commits = ({ pr, width }: { pr: PR; width: number }) => {
   const commits = useLoader(`commits:${prKey(pr)}:${pr.headRefOid}`, () =>
     listCommits(pr)
@@ -336,19 +338,30 @@ const Commits = ({ pr, width }: { pr: PR; width: number }) => {
   if (!commits.value) {
     return <Loading error={commits.error} />;
   }
+  const last = commits.value.length - 1;
   return (
     <box flexDirection="column">
-      {commits.value.map((c) => (
-        <box key={c.sha} flexDirection="column" marginBottom={1}>
-          <text wrapMode="none">
-            <span fg={C.accent}>{`${c.sha} `}</span>
-            <span fg={C.text}>{fit(c.message, width - 9)}</span>
-          </text>
-          <text fg={C.faint} wrapMode="none">
-            {`        ${c.author} · ${age(c.date)} ago`}
-          </text>
-        </box>
-      ))}
+      {commits.value.map((c, i) => {
+        const rail = i < last ? "│ " : "  ";
+        return (
+          <box key={c.sha} flexDirection="column">
+            <text wrapMode="none">
+              <span fg={C.accent}>{c.merge ? "◉ " : "● "}</span>
+              <span fg={C.accent}>{`${c.sha} `}</span>
+              <span fg={c.merge ? C.dim : C.text}>
+                {fit(c.message, width - 11)}
+              </span>
+            </text>
+            <text wrapMode="none">
+              <span fg={C.accent}>{rail}</span>
+              <span
+                fg={C.faint}
+              >{`        ${c.author} · ${age(c.date)} ago`}</span>
+            </text>
+            {i < last ? <text fg={C.accent}>│</text> : null}
+          </box>
+        );
+      })}
     </box>
   );
 };
