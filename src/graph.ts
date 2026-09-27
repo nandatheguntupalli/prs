@@ -69,13 +69,12 @@ interface Lanes {
   colors: string[];
 }
 
-// a horizontal connector between two lanes; lanes it crosses keep their vertical line
+// a horizontal connector between two lanes; where it crosses a lane it draws ┼ so the line stays unbroken
 const paintConnector = (cells: Cell[], a: number, b: number, color: string) => {
   const [from, to] = a < b ? [a, b] : [b, a];
   for (let x = from * 2 + 1; x < to * 2; x += 1) {
-    if (x % 2 === 1 || cells[x]?.ch !== "│") {
-      cells[x] = { ch: "─", color };
-    }
+    const crossing = x % 2 === 0 && ["│", "┼"].includes(cells[x]?.ch ?? "");
+    cells[x] = { ch: crossing ? "┼" : "─", color };
   }
 };
 

@@ -23,17 +23,17 @@ prs --dry-run         # nothing is merged or approved
 | key | list | diff |
 | --- | --- | --- |
 | `j` / `k` | move | scroll |
-| `⏎` / `d` | open diff | |
+| `⏎` / `d` | open diff |  |
 | `m` | **merge** (and delete branch) | merge |
 | `x` | close | close |
 | `z` | undo a pending merge or close | undo |
 | `u` | update branch (merge the base branch in) | page up |
 | `a` | approve | approve |
 | `o` | open in browser | open in browser |
-| `tab` / `1`–`4` | switch between All, Mine, Review requested, Graph | |
-| `p` | toggle the sidebar | |
-| `space` / `b` | | page down / up |
-| `J` / `K` | | next / prev |
+| `tab` / `1`–`4` | switch between All, Mine, Review requested, Graph |  |
+| `p` | toggle the sidebar |  |
+| `space` / `b` |  | page down / up |
+| `J` / `K` |  | next / prev |
 | `r` | refresh | refresh |
 | `q` / `esc` | quit | back |
 

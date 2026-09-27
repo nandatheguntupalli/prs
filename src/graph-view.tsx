@@ -6,6 +6,7 @@ import { ensureCache, fetchLatest, loadCommits } from "./git.ts";
 import type { Source } from "./git.ts";
 import { layout } from "./graph.ts";
 import type { Cell, Commit, GraphRow } from "./graph.ts";
+import { C } from "./theme.ts";
 
 const { BOLD } = TextAttributes;
 
@@ -23,7 +24,10 @@ export const useGraph = (
   active: boolean
 ): GraphState => {
   const [rows, setRows] = useState<GraphRow[] | null>(null);
-  const [status, setStatus] = useState("");
+  // the first time for a repo without a local clone, history has to be downloaded
+  const [status, setStatus] = useState(
+    local ? "" : `Getting ${repo} history (first time only)…`
+  );
   const [source, setSource] = useState<Source | null>(null);
   const started = useRef(false);
 
@@ -108,8 +112,6 @@ const badge = (refs: string[]): Badge | null => {
   return { label, more: names.length - shown };
 };
 
-const BADGE_W = 22;
-
 const fit = (s: string, n: number) =>
   s.length > n ? `${s.slice(0, Math.max(0, n - 1))}…` : s;
 
@@ -127,6 +129,23 @@ const runs = (cells: Cell[]) => {
   return out;
 };
 
+const trimCells = (cells: Cell[]) => {
+  let end = cells.length;
+  while (end > 0 && cells[end - 1]?.ch === " ") {
+    end -= 1;
+  }
+  return cells.slice(0, end);
+};
+
+const pillText = (pill: Badge | null, room: number) => {
+  if (!pill) {
+    return "";
+  }
+  const more = pill.more > 0 ? ` +${pill.more}` : "";
+  return fit(` ${pill.label}${more} `, Math.max(6, Math.min(22, room)));
+};
+
+// graph, then the branch pill right next to the commit, then subject and author
 const CommitRow = ({
   row,
   selected,
@@ -141,41 +160,43 @@ const CommitRow = ({
   onSelect: () => void;
 }) => {
   const { commit } = row;
-  const pill = badge(commit.refs);
   const isHead = commit.refs.some((r) => r.startsWith("HEAD"));
-  const textW = Math.max(10, width - graphW - BADGE_W - 3);
+  // like VS Code, the text starts right after this row's own lanes
+  const cells = trimCells(row.cells).slice(0, graphW);
+  const room = Math.max(8, width - cells.length - 1);
+  const pill = pillText(badge(commit.refs), Math.floor(room / 2));
+  const textW = Math.max(4, room - pill.length - (pill ? 1 : 0));
   const subject = fit(commit.subject, textW);
-  const author = fit(` ${commit.author}`, textW - subject.length);
-  const pillText = pill
-    ? fit(` ${pill.label}${pill.more > 0 ? ` +${pill.more}` : ""} `, BADGE_W)
-    : "";
+  // the author only shows when the whole subject fits
+  const author =
+    subject === commit.subject
+      ? fit(` ${commit.author}`, textW - subject.length)
+      : "";
 
   return (
     <box
       height={1}
-      flexDirection="row"
-      backgroundColor={selected ? "#18181f" : "#000000"}
+      backgroundColor={selected ? C.selected : C.bg}
       onMouseDown={onSelect}
     >
       <text wrapMode="none">
-        {runs(row.cells.slice(0, graphW)).map((cell) => (
-          <span key={cell.at} fg={cell.color || "#000000"}>
+        {runs(cells).map((cell) => (
+          <span key={cell.at} fg={cell.color || C.bg}>
             {cell.ch}
           </span>
         ))}
-      </text>
-      <text wrapMode="none" flexGrow={1}>
-        <span fg="#e5e5e5" attributes={isHead || selected ? BOLD : 0}>
-          {` ${subject}`}
+        <span> </span>
+        {pill ? (
+          <span bg={row.color} fg="#ffffff" attributes={BOLD}>
+            {pill}
+          </span>
+        ) : null}
+        {pill ? <span> </span> : null}
+        <span fg={C.text} attributes={isHead || selected ? BOLD : 0}>
+          {subject}
         </span>
-        <span fg="#737373">{author}</span>
+        <span fg={C.dim}>{author}</span>
       </text>
-      {pill ? (
-        <text wrapMode="none" bg={row.color} fg="#ffffff" attributes={BOLD}>
-          {pillText}
-        </text>
-      ) : null}
-      <text> </text>
     </box>
   );
 };
@@ -184,6 +205,7 @@ export const GraphView = ({
   rows,
   status,
   cursor,
+  focused,
   width,
   height,
   onSelect,
@@ -191,37 +213,62 @@ export const GraphView = ({
   rows: GraphRow[] | null;
   status: string;
   cursor: number;
+  focused: boolean;
   width: number;
   height: number;
   onSelect: (i: number) => void;
 }) => {
+  const count = rows?.length ? `${rows.length} commits` : "";
+  const header = (
+    <text wrapMode="none" truncate>
+      <span fg={focused ? C.accent : C.dim} attributes={BOLD}>
+        Graph
+      </span>
+      <span fg={C.faint}> {status || count}</span>
+    </text>
+  );
   if (!rows?.length) {
     return (
-      <box flexGrow={1} alignItems="center" justifyContent="center">
-        <text fg="#737373">{status || "Loading history…"}</text>
+      <box
+        width={width}
+        flexDirection="column"
+        border={["right"]}
+        borderColor={C.border}
+        paddingLeft={1}
+      >
+        {header}
+        <text fg={C.dim} marginTop={1} wrapMode="word">
+          {status || "Loading history…"}
+        </text>
       </box>
     );
   }
+  // inside the pane: left padding and the right border
+  const inner = width - 2;
   const widest = Math.max(...rows.map((r) => r.cells.length));
   // wide graphs get clipped so the subjects stay readable
-  const graphW = Math.min(widest, Math.floor(width * 0.35));
+  const graphW = Math.min(widest, Math.floor(inner * 0.4));
   const listH = height - 1;
   const start = Math.max(
     0,
     Math.min(cursor - Math.floor(listH / 2), rows.length - listH)
   );
   return (
-    <box flexGrow={1} flexDirection="column" paddingLeft={1}>
-      <text fg="#3f3f46" wrapMode="none" truncate>
-        {status || `${rows.length} commits`}
-      </text>
+    <box
+      width={width}
+      flexDirection="column"
+      border={["right"]}
+      borderColor={C.border}
+      paddingLeft={1}
+    >
+      {header}
       {rows.slice(start, start + listH).map((row, i) => (
         <CommitRow
           key={row.commit.hash}
           row={row}
-          selected={start + i === cursor}
+          selected={focused && start + i === cursor}
           graphW={graphW}
-          width={width - 1}
+          width={inner}
           onSelect={() => onSelect(start + i)}
         />
       ))}

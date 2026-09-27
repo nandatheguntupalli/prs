@@ -53,6 +53,19 @@ describe("layout", () => {
     ).toEqual(["● b", "│ ● x", "●─╯ a"]);
   });
 
+  test("a connector crossing another lane stays unbroken", () => {
+    // y and v both come off z; w's lane (waiting for q) sits between them when v joins z
+    expect(
+      draw([
+        commit("y", ["z"]),
+        commit("w", ["q"]),
+        commit("v", ["z"]),
+        commit("z", []),
+        commit("q", []),
+      ])
+    ).toEqual(["● y", "│ ● w", "│ │ ● v", "●─┼─╯ z", "  ● q"]);
+  });
+
   test("HEAD is drawn hollow", () => {
     expect(draw([commit("c", [], ["HEAD -> main"])])).toEqual(["○ c"]);
   });

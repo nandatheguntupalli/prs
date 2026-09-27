@@ -25,13 +25,12 @@ import { C } from "./theme.ts";
 
 const { BOLD } = TextAttributes;
 
-type PRTab = "all" | "mine" | "review";
-type Tab = PRTab | "graph";
+type Tab = "all" | "mine" | "review";
+type Focus = "prs" | "graph";
 const TABS: { id: Tab; label: string }[] = [
   { id: "all", label: "All" },
   { id: "mine", label: "Mine" },
   { id: "review", label: "Review requested" },
-  { id: "graph", label: "Graph" },
 ];
 
 interface Toast {
@@ -351,8 +350,8 @@ const TabBar = ({
 const HINTS = {
   diff: "j/k scroll · space/b page · J/K next/prev · m merge · a approve · x close · o open · esc back",
   graph:
-    "j/k move · ⏎ show commit · o open on GitHub · r fetch · tab switch · q quit",
-  list: "j/k move · ⏎ diff · m merge · a approve · u update · x close · o open · z undo · tab switch · p sidebar · r refresh · q quit",
+    "j/k move · h/l switch pane · ⏎ show commit · o open on GitHub · r fetch · v hide graph · q quit",
+  list: "j/k move · h/l switch pane · ⏎ diff · m merge · a approve · u update · x close · o open · z undo · tab switch · v graph · p sidebar · q quit",
 };
 
 const Footer = ({
@@ -424,37 +423,51 @@ const DiffView = ({
 
 const AUTHOR_W = 16;
 
+// below this width the table drops the author, age, and diff columns
+const COMPACT_W = 90;
+
 const PRRow = ({
   pr,
   selected,
+  focused,
+  compact,
   titleW,
   onSelect,
 }: {
   pr: PR;
   selected: boolean;
+  focused: boolean;
+  compact: boolean;
   titleW: number;
   onSelect: Action;
 }) => {
   const ci = CHECKS[pr.checks];
   const rv = review(pr);
+  const lit = selected && focused;
   return (
     <box
       height={1}
-      backgroundColor={selected ? C.selected : C.bg}
+      backgroundColor={lit ? C.selected : C.bg}
       onMouseDown={onSelect}
     >
       <text wrapMode="none" truncate>
-        <span fg={C.accent}>{selected ? "▌ " : "  "}</span>
+        <span fg={focused ? C.accent : C.faint}>{selected ? "▌ " : "  "}</span>
         <span fg={C.dim}>{`#${pr.number}`.padEnd(7)}</span>
-        <span fg={pr.isDraft ? C.dim : C.text} attributes={selected ? BOLD : 0}>
+        <span fg={pr.isDraft ? C.dim : C.text} attributes={lit ? BOLD : 0}>
           {`${pad(pr.title, titleW)}  `}
         </span>
-        <span fg={C.blue}>{pad(pr.author, AUTHOR_W)}</span>
-        <span fg={C.dim}>{age(pr.createdAt).padStart(4)} </span>
+        {compact ? null : <span fg={C.blue}>{pad(pr.author, AUTHOR_W)}</span>}
+        {compact ? null : (
+          <span fg={C.dim}>{age(pr.createdAt).padStart(4)} </span>
+        )}
         <span fg={ci.color}>{` ${ci.icon} `}</span>
         <span fg={rv.color}>{pad(rv.short, 9)}</span>
-        <span fg={C.green}>{`+${pr.additions}`.padStart(7)}</span>
-        <span fg={C.red}>{` −${pr.deletions}`.padStart(8)}</span>
+        {compact ? null : (
+          <span fg={C.green}>{`+${pr.additions}`.padStart(7)}</span>
+        )}
+        {compact ? null : (
+          <span fg={C.red}>{` −${pr.deletions}`.padStart(8)}</span>
+        )}
       </text>
     </box>
   );
@@ -463,26 +476,31 @@ const PRRow = ({
 const PRTable = ({
   list,
   cursor,
+  focused,
   width,
   height,
   onSelect,
 }: {
   list: PR[];
   cursor: number;
+  focused: boolean;
   width: number;
   height: number;
   onSelect: (i: number) => void;
 }) => {
-  const titleW = Math.max(
-    12,
-    width - 2 - 7 - 2 - AUTHOR_W - 5 - 3 - 9 - 15 - 1
-  );
+  const compact = width < COMPACT_W;
+  const fixed = compact
+    ? 2 + 7 + 2 + 3 + 9 + 1
+    : 2 + 7 + 2 + AUTHOR_W + 5 + 3 + 9 + 15 + 1;
+  const titleW = Math.max(12, width - fixed);
   // keep the cursor roughly centered once the list is taller than the screen
   const start = Math.max(
     0,
     Math.min(cursor - Math.floor(height / 2), list.length - height)
   );
-  const columns = `  ${"#".padEnd(7)}${pad("Title", titleW)}  ${pad("Author", AUTHOR_W)} Age CI ${"Review".padEnd(9)}${"Diff".padStart(15)}`;
+  const columns = compact
+    ? `  ${"#".padEnd(7)}${pad("Title", titleW)}  CI ${"Review".padEnd(9)}`
+    : `  ${"#".padEnd(7)}${pad("Title", titleW)}  ${pad("Author", AUTHOR_W)} Age CI ${"Review".padEnd(9)}${"Diff".padStart(15)}`;
   return (
     <box width={width} flexDirection="column">
       <text fg={C.faint} wrapMode="none" truncate>
@@ -493,6 +511,8 @@ const PRTable = ({
           key={p.number}
           pr={p}
           selected={start + i === cursor}
+          focused={focused}
+          compact={compact}
           titleW={titleW}
           onSelect={() => onSelect(start + i)}
         />
@@ -544,19 +564,14 @@ const diffTitle = (pr: PR | undefined, commit: Commit | undefined) => {
   return pr ? <PRTitle pr={pr} /> : null;
 };
 
-// whichever of the diff, the graph, or the PR table (with its sidebar) is showing
-const MainView = ({
-  view,
-  inGraph,
+// the PR table with its detail sidebar, or a loading / empty message in its place
+const PRPane = ({
   prs,
   list,
   pr,
-  commit,
-  graph,
   cursor,
+  focused,
   onSelect,
-  diffLines,
-  scroll,
   sidebar,
   behind,
   actions,
@@ -564,17 +579,12 @@ const MainView = ({
   width,
   height,
 }: {
-  view: "list" | "diff";
-  inGraph: boolean;
   prs: PR[] | null;
   list: PR[];
   pr: PR | undefined;
-  commit: Commit | undefined;
-  graph: GraphState;
   cursor: number;
+  focused: boolean;
   onSelect: (i: number) => void;
-  diffLines: string[] | null;
-  scroll: number;
   sidebar: boolean;
   behind: number | undefined;
   actions: PRActions;
@@ -582,32 +592,6 @@ const MainView = ({
   width: number;
   height: number;
 }) => {
-  // header, tabs, gap, table header, toast, footer
-  const bodyH = height - 6;
-  const title = diffTitle(pr, commit);
-  if (view === "diff" && title) {
-    return (
-      <DiffView
-        title={title}
-        lines={diffLines}
-        scroll={scroll}
-        height={bodyH - 1}
-        width={width}
-      />
-    );
-  }
-  if (inGraph) {
-    return (
-      <GraphView
-        rows={graph.rows}
-        status={graph.status}
-        cursor={cursor}
-        width={width}
-        height={bodyH + 1}
-        onSelect={onSelect}
-      />
-    );
-  }
   if (!prs) {
     return (
       <Centered>
@@ -625,19 +609,83 @@ const MainView = ({
       </Centered>
     );
   }
-  const sideW = sidebar ? Math.max(36, Math.floor(width * 0.38)) : 0;
+  const sideW = sidebar ? Math.max(34, Math.floor(width * 0.42)) : 0;
   return (
     <box flexGrow={1} flexDirection="row">
       <PRTable
         list={list}
         cursor={cursor}
+        focused={focused}
         width={width - sideW}
-        height={bodyH}
+        height={height}
         onSelect={onSelect}
       />
       {sidebar ? (
         <Sidebar pr={pr} width={sideW} behind={behind} actions={actions} />
       ) : null}
+    </box>
+  );
+};
+
+// graph on the left, PRs on the right; or a full-width diff
+const MainView = ({
+  view,
+  focus,
+  graphPane,
+  graph,
+  graphCursor,
+  onSelectCommit,
+  pr,
+  commit,
+  diffLines,
+  scroll,
+  width,
+  height,
+  prPane,
+}: {
+  view: "list" | "diff";
+  focus: Focus;
+  graphPane: boolean;
+  graph: GraphState;
+  graphCursor: number;
+  onSelectCommit: (i: number) => void;
+  pr: PR | undefined;
+  commit: Commit | undefined;
+  diffLines: string[] | null;
+  scroll: number;
+  width: number;
+  height: number;
+  prPane: (width: number, height: number) => ReactNode;
+}) => {
+  // header, tabs, gap, table header, toast, footer
+  const bodyH = height - 6;
+  const title = diffTitle(pr, commit);
+  if (view === "diff" && title) {
+    return (
+      <DiffView
+        title={title}
+        lines={diffLines}
+        scroll={scroll}
+        height={bodyH - 1}
+        width={width}
+      />
+    );
+  }
+  const graphW = graphPane ? Math.max(44, Math.floor(width * 0.4)) : 0;
+  return (
+    <box flexGrow={1} flexDirection="row">
+      {graphPane ? (
+        <GraphView
+          rows={graph.rows}
+          status={graph.status}
+          cursor={graphCursor}
+          focused={focus === "graph"}
+          width={graphW}
+          height={bodyH + 1}
+          onSelect={onSelectCommit}
+        />
+      ) : null}
+      {prPane(width - graphW - (graphPane ? 1 : 0), bodyH)}
     </box>
   );
 };
@@ -663,6 +711,8 @@ export const App = ({
   const [tab, setTab] = useState<Tab>("all");
   const [cursor, setCursor] = useState(0);
   const [graphCursor, setGraphCursor] = useState(0);
+  const [focus, setFocus] = useState<Focus>("prs");
+  const [graphPane, setGraphPane] = useState(true);
   const [view, setView] = useState<"list" | "diff">("list");
   const [sidebar, setSidebar] = useState(true);
   const [scroll, setScroll] = useState(0);
@@ -703,17 +753,17 @@ export const App = ({
     load();
   }, []);
 
-  const inGraph = tab === "graph";
-  const graph = useGraph(repo, local, inGraph);
+  const inGraph = graphPane && focus === "graph";
+  const graph = useGraph(repo, local, graphPane);
   const commits = graph.rows ?? [];
 
   const all = prs ?? [];
-  const tabs: Record<PRTab, PR[]> = {
+  const tabs: Record<Tab, PR[]> = {
     all,
     mine: all.filter((p) => p.author === me),
     review: all.filter((p) => p.reviewRequests.includes(me)),
   };
-  const list = inGraph ? [] : tabs[tab];
+  const list = tabs[tab];
   const pr = list[Math.min(cursor, list.length - 1)];
   const commit = inGraph
     ? commits[Math.min(graphCursor, commits.length - 1)]?.commit
@@ -761,7 +811,25 @@ export const App = ({
   const selectTab = (t: Tab) => {
     setTab(t);
     setCursor(0);
+    setFocus("prs");
     setView("list");
+  };
+
+  const toggleGraph = () => {
+    setGraphPane((g) => !g);
+    setFocus("prs");
+  };
+
+  const focusGraph = () => graphPane && setFocus("graph");
+
+  const selectCommit = (i: number) => {
+    setGraphCursor(i);
+    setFocus("graph");
+  };
+
+  const selectPR = (i: number) => {
+    setCursor(i);
+    setFocus("prs");
   };
 
   const cycleTab = (dir: 1 | -1) => {
@@ -801,6 +869,9 @@ export const App = ({
     handleUpdate: () => pr && doUpdate(pr),
   };
 
+  // PR keys do nothing while browsing the graph; the sidebar's buttons still work
+  const onPRs = (fn: Action) => () => !inGraph && fn();
+
   const openCommit = () =>
     commit && openInBrowser(`https://github.com/${repo}/commit/${commit.hash}`);
 
@@ -815,9 +886,9 @@ export const App = ({
       ...bind(["ctrl+c"], quit),
       ...bind(["z"], pending.undo),
       ...bind(["r"], refreshAll),
-      ...bind(["m"], prActions.handleMerge),
-      ...bind(["a"], prActions.handleApprove),
-      ...bind(["x"], prActions.handleClose),
+      ...bind(["m"], onPRs(prActions.handleMerge)),
+      ...bind(["a"], onPRs(prActions.handleApprove)),
+      ...bind(["x"], onPRs(prActions.handleClose)),
       ...bind(["o"], inGraph ? openCommit : prActions.handleOpen),
     ]);
 
@@ -831,7 +902,10 @@ export const App = ({
       ...bind(["shift+tab"], () => cycleTab(-1)),
       ...TABS.flatMap((t, i) => bind([String(i + 1)], () => selectTab(t.id))),
       ...bind(["p"], () => setSidebar((s) => !s)),
-      ...bind(["u"], prActions.handleUpdate),
+      ...bind(["v"], toggleGraph),
+      ...bind(["h", "left"], focusGraph),
+      ...bind(["l", "right"], () => setFocus("prs")),
+      ...bind(["u"], onPRs(prActions.handleUpdate)),
       ...bind(["return", "d"], () => (pr || commit) && openDiff()),
     ]);
 
@@ -853,36 +927,48 @@ export const App = ({
 
   useKeyboard((key: KeyEvent) => keymap(keyId(key))?.());
 
-  const main = (
-    <MainView
-      view={view}
-      inGraph={inGraph}
+  const prPane = (paneW: number, paneH: number) => (
+    <PRPane
       prs={prs}
       list={list}
       pr={pr}
-      commit={commit}
-      graph={graph}
-      cursor={inGraph ? graphCursor : cursor}
-      onSelect={setActiveCursor}
-      diffLines={diffLines}
-      scroll={scroll}
+      cursor={cursor}
+      focused={!inGraph}
+      onSelect={selectPR}
       sidebar={sidebar}
       behind={behind}
       actions={prActions}
       emptyLabel={TABS.find((t) => t.id === tab)?.label ?? ""}
+      width={paneW}
+      height={paneH}
+    />
+  );
+
+  const main = (
+    <MainView
+      view={view}
+      focus={inGraph ? "graph" : "prs"}
+      graphPane={graphPane}
+      graph={graph}
+      graphCursor={graphCursor}
+      onSelectCommit={selectCommit}
+      pr={pr}
+      commit={commit}
+      diffLines={diffLines}
+      scroll={scroll}
       width={width}
       height={height}
+      prPane={prPane}
     />
   );
 
   const counts = prs
     ? {
         all: tabs.all.length,
-        graph: graph.rows?.length,
         mine: tabs.mine.length,
         review: tabs.review.length,
       }
-    : { graph: graph.rows?.length };
+    : {};
 
   return (
     <box
