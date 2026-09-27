@@ -171,67 +171,16 @@ export const labelText = (hex: string) => {
   return luma > 150 ? "#111111" : "#ffffff";
 };
 
-export interface MarkdownLine {
-  // position in the description, for React keys
-  id: number;
-  text: string;
-  color: string;
-  bold: boolean;
-}
-
-// PR descriptions, lightly rendered: headings, bullets, and code blocks read as such; HTML,
-// comments and image tags (mostly bot badges) are dropped, and inline markup is unwrapped
-export const renderMarkdown = (body: string): MarkdownLine[] => {
-  const cleaned = (body ?? "")
+// a PR description ready for the markdown renderer: HTML comments and tags (mostly bot badges)
+// and images dropped, and escaped newlines unescaped when a tool posted them that way
+export const cleanMarkdown = (body = "") => {
+  const unescaped = body.includes("\n") ? body : body.replaceAll("\\n", "\n");
+  const cleaned = unescaped
     .replaceAll("\r", "")
     .replaceAll(/<!--[\s\S]*?-->/gu, "")
     .replaceAll(/<[^>]+>/gu, "")
-    .replaceAll("\t", "  ")
+    .replaceAll(/!\[[^\]]*\]\([^)]*\)/gu, "")
     .replaceAll(/\n{3,}/gu, "\n\n")
     .trim();
-  if (!cleaned) {
-    return [{ bold: false, color: C.faint, id: 0, text: "No description." }];
-  }
-  let inCode = false;
-  const lines = cleaned
-    .split("\n")
-    .flatMap((raw): Omit<MarkdownLine, "id">[] => {
-      if (raw.trimStart().startsWith("```")) {
-        inCode = !inCode;
-        return [];
-      }
-      if (inCode) {
-        return [{ bold: false, color: C.cyan, text: `  ${raw}` }];
-      }
-      const inline = raw
-        .replaceAll(/!\[[^\]]*\]\([^)]*\)/gu, "")
-        .replaceAll(/\[(?<text>[^\]]+)\]\([^)]*\)/gu, "$<text>")
-        .replaceAll(/\*\*(?<text>[^*]+)\*\*/gu, "$<text>")
-        .replaceAll(/__(?<text>[^_]+)__/gu, "$<text>");
-      const heading = /^(?<hashes>#{1,6})\s+(?<text>.*)$/u.exec(inline);
-      if (heading) {
-        return [
-          {
-            bold: true,
-            color: heading.groups?.hashes === "#" ? C.accent : C.text,
-            text: heading.groups?.text ?? "",
-          },
-        ];
-      }
-      const bullet = /^(?<indent>\s*)[-*+]\s+(?<text>.*)$/u.exec(inline);
-      if (bullet) {
-        return [
-          {
-            bold: false,
-            color: C.dim,
-            text: `${bullet.groups?.indent ?? ""}• ${bullet.groups?.text ?? ""}`,
-          },
-        ];
-      }
-      if (/^\s*[-*_]{3,}\s*$/u.test(inline)) {
-        return [];
-      }
-      return [{ bold: false, color: C.dim, text: inline }];
-    });
-  return lines.map((line, id) => ({ ...line, id }));
+  return cleaned || "_No description._";
 };

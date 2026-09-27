@@ -165,7 +165,6 @@ interface ListProps {
   pr: PR | undefined;
   cursor: number;
   focus: Focus;
-  compact: boolean;
   showRepo: boolean;
   handleSelectPR: (i: number) => void;
   sidebar: boolean;
@@ -190,7 +189,7 @@ const ListScreen = (p: ListProps) => {
   const graphW = graphCells(p.width, p.graphPane, p.sizes.graph);
   const paneW = p.width - graphW - (p.graphPane ? 1 : 0);
   // the table never needs to be wider than its content; any extra width goes to the details
-  const tableW = tableContentWidth(p.list, p.compact, p.showRepo);
+  const tableW = tableContentWidth(p.list, p.showRepo);
   const sideW = p.sidebar
     ? Math.max(sidebarCells(paneW, true, p.sizes.sidebar), paneW - 1 - tableW)
     : 0;
@@ -221,7 +220,6 @@ const ListScreen = (p: ListProps) => {
           places={p.places}
           cursor={p.cursor}
           focused={p.focus === "prs"}
-          compact={p.compact}
           showRepo={p.showRepo}
           width={paneW - sideW - (p.sidebar ? 1 : 0)}
           height={p.height}
@@ -468,7 +466,6 @@ export const App = ({
     tab,
   });
   const showRepo = !scope;
-  const compact = tab === "mine";
 
   const graph = useGraph(scope, local, showGraph);
   const cell = useCellPixels(showGraph && !textGraph);
@@ -780,7 +777,7 @@ export const App = ({
     open: openThing,
     openCheck,
     openDiff,
-    page: pageSize(height - 7, compact),
+    page: pageSize(height - 7),
     palette: () => setModal({ kind: "palette" }),
     queues,
     quit: () => (screen === "list" ? quit() : back()),
@@ -896,7 +893,6 @@ export const App = ({
         pr={pr}
         cursor={Math.min(cursor, Math.max(0, list.length - 1))}
         focus={inGraph ? "graph" : "prs"}
-        compact={compact}
         showRepo={showRepo}
         handleSelectPR={(i) => {
           setCursor(i);

@@ -8,11 +8,12 @@ import {
   fit,
   labelText,
   plural,
-  renderMarkdown,
+  cleanMarkdown,
   reviewState,
   reviewStatus,
 } from "./format.ts";
 import type { Action } from "./keys.ts";
+import { markdownStyle } from "./markdown.ts";
 import { BOLD, Button, SectionTitle } from "./primitives.tsx";
 
 export interface PRActions {
@@ -218,18 +219,12 @@ export const Sidebar = ({
         <SectionTitle>Description</SectionTitle>
       </box>
       <box flexDirection="column" flexShrink={1} overflow="hidden">
-        {renderMarkdown(pr.body).map((line) => (
-          // each line keeps its wrapped height; the box around them clips what doesn't fit
-          <text
-            key={line.id}
-            fg={line.color}
-            attributes={line.bold ? BOLD : 0}
-            wrapMode="word"
-            flexShrink={0}
-          >
-            {line.text || " "}
-          </text>
-        ))}
+        <markdown
+          content={cleanMarkdown(pr.body)}
+          syntaxStyle={markdownStyle()}
+          fg={C.dim}
+          conceal
+        />
       </box>
     </box>
   );
