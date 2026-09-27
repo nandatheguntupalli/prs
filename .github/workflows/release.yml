@@ -1,0 +1,57 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+
+      - run: bun install --frozen-lockfile
+
+      - name: Build binaries
+        run: |
+          # the tag is the source of truth for the version
+          jq --arg v "${GITHUB_REF_NAME#v}" '.version = $v' package.json > package.json.tmp
+          mv package.json.tmp package.json
+          for target in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do
+            bun scripts/build.ts "bun-$target" "build/$target/prs"
+            if [[ $target == darwin-* ]]; then
+              codesign --force --sign - "build/$target/prs"
+            fi
+            tar -czf "prs-$target.tar.gz" -C "build/$target" prs
+          done
+          shasum -a 256 prs-*.tar.gz > checksums.txt
+
+      - name: Smoke test
+        run: test "$(./build/darwin-arm64/prs --version)" = "${GITHUB_REF_NAME#v}"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" prs-*.tar.gz checksums.txt --generate-notes
+
+      - uses: actions/checkout@v5
+        with:
+          repository: nandatheguntupalli/homebrew-tap
+          path: tap
+          ssh-key: ${{ secrets.TAP_DEPLOY_KEY }}
+
+      - name: Update Homebrew formula
+        run: |
+          mkdir -p tap/Formula
+          scripts/formula.sh "${GITHUB_REF_NAME#v}" checksums.txt > tap/Formula/prs.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/prs.rb
+          git commit -m "prs ${GITHUB_REF_NAME}"
+          git push
