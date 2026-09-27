@@ -39,7 +39,7 @@ if (!["squash", "merge", "rebase"].includes(method)) {
   process.exit(1);
 }
 
-let repo = positionals[0];
+let [repo] = positionals;
 if (!repo) {
   try {
     repo = await currentRepo();

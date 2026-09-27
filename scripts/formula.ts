@@ -7,7 +7,7 @@ export const TARGETS = [
 ] as const;
 export type Target = (typeof TARGETS)[number];
 
-export function formula(version: string, sha: Record<Target, string>) {
+export const formula = (version: string, sha: Record<Target, string>) => {
   const base = `https://github.com/nandatheguntupalli/prs/releases/download/v${version}`;
   const asset = (t: Target) =>
     `      url "${base}/prs-${t}.tar.gz"\n      sha256 "${sha[t]}"`;
@@ -47,4 +47,4 @@ ${asset("linux-x64")}
   end
 end
 `;
-}
+};

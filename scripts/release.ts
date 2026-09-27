@@ -17,8 +17,8 @@ const pkg = await Bun.file("package.json").json();
 pkg.version = version;
 await Bun.write("package.json", `${JSON.stringify(pkg, null, 2)}\n`);
 
-const sha = {} as Record<Target, string>;
-for (const target of TARGETS) {
+// builds a target, packages it, and returns the tarball's sha256
+const release = async (target: Target) => {
   const dir = `build/${target}`;
   await build(`bun-${target}`, `${dir}/prs`);
   if (target.startsWith("darwin")) {
@@ -26,17 +26,22 @@ for (const target of TARGETS) {
   }
   const tarball = `prs-${target}.tar.gz`;
   await $`tar -czf ${tarball} -C ${dir} prs`;
-  sha[target] = new Bun.CryptoHasher("sha256")
-    .update(await Bun.file(tarball).bytes())
-    .digest("hex");
-}
+  const bytes = await Bun.file(tarball).bytes();
+  return new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
+};
+
+const hashes = await Promise.all(TARGETS.map(release));
+const sha = Object.fromEntries(TARGETS.map((t, i) => [t, hashes[i]])) as Record<
+  Target,
+  string
+>;
 
 const host = `${process.platform}-${process.arch}` as Target;
 if (TARGETS.includes(host)) {
-  const out = (await $`build/${host}/prs --version`.text()).trim();
-  if (out !== version) {
+  const out = await $`build/${host}/prs --version`.text();
+  if (out.trim() !== version) {
     throw new Error(
-      `Smoke test failed: binary reports ${out}, expected ${version}`
+      `Smoke test failed: binary reports ${out.trim()}, expected ${version}`
     );
   }
 }

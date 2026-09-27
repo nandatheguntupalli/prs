@@ -1,33 +1,33 @@
 // Compiles prs into a standalone binary: bun scripts/build.ts [bun-target] [outfile]
 import type { Build } from "bun";
 
-export async function build(
+export const build = async (
   target?: Build.CompileTarget,
   outfile = "dist/prs"
-) {
+) => {
   // OpenTUI statically imports a native lib package for every platform; keep only the one we're building for
   const platform = target
-    ? target.replace(/^bun-/, "")
+    ? target.replace(/^bun-/u, "")
     : `${process.platform}-${process.arch}`;
 
   const result = await Bun.build({
-    compile: target ? { target, outfile } : { outfile },
+    compile: target ? { outfile, target } : { outfile },
     entrypoints: ["src/cli.tsx"],
     minify: true,
     plugins: [
       {
         name: "stub-unused",
-        setup(build) {
-          build.onResolve({ filter: /^react-devtools-core$/ }, (args) => ({
-            path: args.path,
+        setup(builder) {
+          builder.onResolve({ filter: /^react-devtools-core$/u }, (args) => ({
             namespace: "stub",
+            path: args.path,
           }));
-          build.onResolve({ filter: /^@opentui\/core-[\w-]+$/ }, (args) =>
+          builder.onResolve({ filter: /^@opentui\/core-[\w-]+$/u }, (args) =>
             args.path === `@opentui/core-${platform}`
               ? undefined
-              : { path: args.path, namespace: "stub" }
+              : { namespace: "stub", path: args.path }
           );
-          build.onLoad({ filter: /.*/, namespace: "stub" }, () => ({
+          builder.onLoad({ filter: /.*/u, namespace: "stub" }, () => ({
             contents: "export default {}",
             loader: "js",
           }));
@@ -42,7 +42,7 @@ export async function build(
     process.exit(1);
   }
   console.log(`built ${outfile} (${target ?? "host"})`);
-}
+};
 
 if (import.meta.main) {
   const [target, outfile] = Bun.argv.slice(2);

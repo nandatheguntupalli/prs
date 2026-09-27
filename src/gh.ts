@@ -20,10 +20,39 @@ export interface PR {
   reviewRequests: string[];
 }
 
+// CheckRun has status/conclusion, StatusContext has state
+interface RawCheck {
+  conclusion?: string;
+  state?: string;
+  status?: string;
+}
+
+// users have a login, teams have a slug
+interface RawReviewer {
+  login?: string;
+  name?: string;
+  slug?: string;
+}
+
+type RawPR = Omit<PR, "author" | "checks" | "reviewRequests"> & {
+  author: { login: string } | null;
+  statusCheckRollup: RawCheck[] | null;
+  reviewRequests: RawReviewer[] | null;
+};
+
 const FIELDS =
   "number,title,author,createdAt,headRefName,baseRefName,isDraft,reviewDecision,mergeable,additions,deletions,changedFiles,url,body,statusCheckRollup,reviewRequests";
 
-async function gh(args: string[]): Promise<string> {
+const FAILED = new Set([
+  "FAILURE",
+  "ERROR",
+  "CANCELLED",
+  "TIMED_OUT",
+  "ACTION_REQUIRED",
+  "STARTUP_FAILURE",
+]);
+
+const gh = async (args: string[]): Promise<string> => {
   const proc = Bun.spawn(["gh", ...args], { stderr: "pipe", stdout: "pipe" });
   const [out, err, code] = await Promise.all([
     new Response(proc.stdout).text(),
@@ -34,26 +63,16 @@ async function gh(args: string[]): Promise<string> {
     throw new Error(err.trim().split("\n")[0] || `gh exited ${code}`);
   }
   return out;
-}
+};
 
-function summarizeChecks(rollup: any[] | null): Checks {
+const summarizeChecks = (rollup: RawCheck[] | null): Checks => {
   if (!rollup?.length) {
     return "none";
   }
   let pending = false;
   for (const c of rollup) {
-    // CheckRun has status/conclusion, StatusContext has state
     const v = (c.conclusion || c.state || "").toUpperCase();
-    if (
-      [
-        "FAILURE",
-        "ERROR",
-        "CANCELLED",
-        "TIMED_OUT",
-        "ACTION_REQUIRED",
-        "STARTUP_FAILURE",
-      ].includes(v)
-    ) {
+    if (FAILED.has(v)) {
       return "fail";
     }
     if (
@@ -65,48 +84,63 @@ function summarizeChecks(rollup: any[] | null): Checks {
     }
   }
   return pending ? "pending" : "pass";
-}
+};
 
-export async function currentRepo(): Promise<string> {
-  return (
-    await gh([
-      "repo",
-      "view",
-      "--json",
-      "nameWithOwner",
-      "-q",
-      ".nameWithOwner",
-    ])
-  ).trim();
-}
+export const errorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
 
-export async function viewer(): Promise<string> {
-  return (await gh(["api", "user", "-q", ".login"])).trim();
-}
+export const currentRepo = async (): Promise<string> => {
+  const out = await gh([
+    "repo",
+    "view",
+    "--json",
+    "nameWithOwner",
+    "-q",
+    ".nameWithOwner",
+  ]);
+  return out.trim();
+};
 
-export async function listPRs(repo: string): Promise<PR[]> {
-  const raw = JSON.parse(
-    await gh(["pr", "list", "-R", repo, "--limit", "100", "--json", FIELDS])
-  );
-  return raw.map((p: any) => ({
+// the Mine and Review requested tabs just stay empty if this fails
+export const viewer = async (): Promise<string> => {
+  try {
+    const out = await gh(["api", "user", "-q", ".login"]);
+    return out.trim();
+  } catch {
+    return "";
+  }
+};
+
+export const listPRs = async (repo: string): Promise<PR[]> => {
+  const out = await gh([
+    "pr",
+    "list",
+    "-R",
+    repo,
+    "--limit",
+    "100",
+    "--json",
+    FIELDS,
+  ]);
+  const raw: RawPR[] = JSON.parse(out);
+  return raw.map(({ statusCheckRollup, ...p }) => ({
     ...p,
     author: p.author?.login ?? "ghost",
-    checks: summarizeChecks(p.statusCheckRollup),
+    checks: summarizeChecks(statusCheckRollup),
     reviewRequests: (p.reviewRequests ?? [])
-      .map((r: any) => r.login ?? r.slug ?? r.name)
+      .map((r) => r.login ?? r.slug ?? r.name ?? "")
       .filter(Boolean),
-    statusCheckRollup: undefined,
   }));
-}
+};
 
 export const getDiff = (repo: string, n: number) =>
   gh(["pr", "diff", String(n), "-R", repo, "--color", "never"]);
 
 export const dryRun = { enabled: false };
 
-export const merge = async (repo: string, n: number, method: MergeMethod) =>
+export const merge = (repo: string, n: number, method: MergeMethod) =>
   dryRun.enabled
-    ? ""
+    ? Promise.resolve("")
     : gh([
         "pr",
         "merge",
@@ -117,9 +151,9 @@ export const merge = async (repo: string, n: number, method: MergeMethod) =>
         "--delete-branch",
       ]);
 
-export const approve = async (repo: string, n: number) =>
+export const approve = (repo: string, n: number) =>
   dryRun.enabled
-    ? ""
+    ? Promise.resolve("")
     : gh(["pr", "review", String(n), "-R", repo, "--approve"]);
 
 export const openInBrowser = (url: string) =>
