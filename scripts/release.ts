@@ -1,41 +1,61 @@
 // CI release: builds every target, publishes a GitHub release, and updates the formula in ./tap
 // Usage: bun scripts/release.ts v1.2.3   (defaults to $GITHUB_REF_NAME)
 import { $ } from "bun";
+
 import { build } from "./build.ts";
-import { formula, TARGETS, type Target } from "./formula.ts";
+import { formula, TARGETS } from "./formula.ts";
+import type { Target } from "./formula.ts";
 
 const tag = Bun.argv[2] ?? process.env.GITHUB_REF_NAME;
-if (!tag?.startsWith("v")) throw new Error(`Expected a tag like v1.2.3, got ${tag}`);
+if (!tag?.startsWith("v")) {
+  throw new Error(`Expected a tag like v1.2.3, got ${tag}`);
+}
 const version = tag.slice(1);
 
 // the tag is the source of truth for the version baked into the binary
 const pkg = await Bun.file("package.json").json();
 pkg.version = version;
-await Bun.write("package.json", JSON.stringify(pkg, null, 2) + "\n");
+await Bun.write("package.json", `${JSON.stringify(pkg, null, 2)}\n`);
 
 const sha = {} as Record<Target, string>;
 for (const target of TARGETS) {
   const dir = `build/${target}`;
   await build(`bun-${target}`, `${dir}/prs`);
-  if (target.startsWith("darwin")) await $`codesign --force --sign - ${dir}/prs`;
+  if (target.startsWith("darwin")) {
+    await $`codesign --force --sign - ${dir}/prs`;
+  }
   const tarball = `prs-${target}.tar.gz`;
   await $`tar -czf ${tarball} -C ${dir} prs`;
-  sha[target] = new Bun.CryptoHasher("sha256").update(await Bun.file(tarball).bytes()).digest("hex");
+  sha[target] = new Bun.CryptoHasher("sha256")
+    .update(await Bun.file(tarball).bytes())
+    .digest("hex");
 }
 
 const host = `${process.platform}-${process.arch}` as Target;
 if (TARGETS.includes(host)) {
   const out = (await $`build/${host}/prs --version`.text()).trim();
-  if (out !== version) throw new Error(`Smoke test failed: binary reports ${out}, expected ${version}`);
+  if (out !== version) {
+    throw new Error(
+      `Smoke test failed: binary reports ${out}, expected ${version}`
+    );
+  }
 }
 
-await Bun.write("checksums.txt", TARGETS.map((t) => `${sha[t]}  prs-${t}.tar.gz\n`).join(""));
+await Bun.write(
+  "checksums.txt",
+  TARGETS.map((t) => `${sha[t]}  prs-${t}.tar.gz\n`).join("")
+);
 const assets = [...TARGETS.map((t) => `prs-${t}.tar.gz`), "checksums.txt"];
 await $`gh release create ${tag} ${assets} --generate-notes`;
 
 await Bun.write("tap/Formula/prs.rb", formula(version, sha));
 await $`git -C tap add Formula/prs.rb`;
-const bot = ["-c", "user.name=github-actions[bot]", "-c", "user.email=41898282+github-actions[bot]@users.noreply.github.com"];
+const bot = [
+  "-c",
+  "user.name=github-actions[bot]",
+  "-c",
+  "user.email=41898282+github-actions[bot]@users.noreply.github.com",
+];
 await $`git -C tap ${bot} commit -m ${`prs ${tag}`}`;
 await $`git -C tap push`;
 console.log(`released ${tag}`);

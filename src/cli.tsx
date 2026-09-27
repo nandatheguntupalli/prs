@@ -1,20 +1,23 @@
 #!/usr/bin/env bun
+import { parseArgs } from "node:util";
+
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
-import { parseArgs } from "node:util";
-import { App } from "./app.tsx";
+
 import pkg from "../package.json";
-import { currentRepo, dryRun, type MergeMethod } from "./gh.ts";
+import { App } from "./app.tsx";
+import { currentRepo, dryRun } from "./gh.ts";
+import type { MergeMethod } from "./gh.ts";
 
 const { values, positionals } = parseArgs({
-  args: Bun.argv.slice(2),
   allowPositionals: true,
+  args: Bun.argv.slice(2),
   options: {
-    method: { type: "string", short: "m", default: "squash" },
-    delay: { type: "string", short: "d", default: "4" },
+    delay: { default: "4", short: "d", type: "string" },
     "dry-run": { type: "boolean" },
-    help: { type: "boolean", short: "h" },
-    version: { type: "boolean", short: "v" },
+    help: { short: "h", type: "boolean" },
+    method: { default: "squash", short: "m", type: "string" },
+    version: { short: "v", type: "boolean" },
   },
 });
 
@@ -49,9 +52,9 @@ if (!repo) {
 dryRun.enabled = !!values["dry-run"];
 
 const renderer = await createCliRenderer({
+  backgroundColor: "#000000",
   exitOnCtrlC: false,
   screenMode: "alternate-screen",
-  backgroundColor: "#000000",
   useMouse: true,
 });
 
@@ -61,5 +64,11 @@ const quit = () => {
 };
 
 createRoot(renderer).render(
-  <App repo={repo} method={method} delay={Number(values.delay)} dryRun={dryRun.enabled} onQuit={quit} />,
+  <App
+    repo={repo}
+    method={method}
+    delay={Number(values.delay)}
+    dryRun={dryRun.enabled}
+    onQuit={quit}
+  />
 );

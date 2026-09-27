@@ -1,4 +1,15 @@
 {
+  "name": "prs",
+  "version": "0.1.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun src/cli.tsx",
+    "build": "bun scripts/build.ts",
+    "release": "bun scripts/bump.ts",
+    "check": "ultracite check",
+    "fix": "ultracite fix"
+  },
   "dependencies": {
     "@opentui/core": "^0.5.12",
     "@opentui/react": "^0.5.12",
@@ -9,20 +20,9 @@
     "@types/react": "^19.3.0",
     "oxfmt": "^0.70.0",
     "oxlint": "^1.85.0",
-    "ultracite": "7.12.0"
+    "ultracite": "^7.12.0"
   },
-  "name": "prs",
   "peerDependencies": {
     "typescript": "^7"
-  },
-  "scripts": {
-    "start": "bun src/cli.tsx",
-    "build": "bun scripts/build.ts",
-    "release": "bun scripts/bump.ts",
-    "check": "ultracite check",
-    "fix": "ultracite fix"
-  },
-  "type": "module",
-  "version": "0.1.1",
-  "private": true
+  }
 }

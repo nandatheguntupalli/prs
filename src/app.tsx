@@ -1,24 +1,35 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { TextAttributes, type KeyEvent } from "@opentui/core";
+import { TextAttributes } from "@opentui/core";
+import type { KeyEvent } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import { approve, getDiff, listPRs, merge, openInBrowser, viewer, type MergeMethod, type PR } from "./gh.ts";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
+
+import {
+  approve,
+  getDiff,
+  listPRs,
+  merge,
+  openInBrowser,
+  viewer,
+} from "./gh.ts";
+import type { MergeMethod, PR } from "./gh.ts";
 
 const C = {
+  accent: "#a78bfa",
   bg: "#000000",
+  blue: "#60a5fa",
   border: "#262626",
-  selected: "#18181f",
-  text: "#e5e5e5",
+  cyan: "#67e8f9",
   dim: "#737373",
   faint: "#3f3f46",
-  accent: "#a78bfa",
   green: "#4ade80",
   red: "#f87171",
+  selected: "#18181f",
+  text: "#e5e5e5",
   yellow: "#fbbf24",
-  blue: "#60a5fa",
-  cyan: "#67e8f9",
 };
 
-const BOLD = TextAttributes.BOLD;
+const { BOLD } = TextAttributes;
 
 type Tab = "all" | "mine" | "review";
 const TABS: { id: Tab; label: string }[] = [
@@ -27,67 +38,134 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "review", label: "Review requested" },
 ];
 
-type Toast = { text: string; color: string };
-type Pending = { pr: PR; index: number; timer: ReturnType<typeof setTimeout> };
+interface Toast {
+  text: string;
+  color: string;
+}
+interface Pending {
+  pr: PR;
+  index: number;
+  timer: ReturnType<typeof setTimeout>;
+}
 
 function age(iso: string) {
   const s = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (s < 3600) return `${Math.max(1, Math.floor(s / 60))}m`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h`;
-  if (s < 86400 * 30) return `${Math.floor(s / 86400)}d`;
-  return `${Math.floor(s / (86400 * 30))}mo`;
+  if (s < 3600) {
+    return `${Math.max(1, Math.floor(s / 60))}m`;
+  }
+  if (s < 86_400) {
+    return `${Math.floor(s / 3600)}h`;
+  }
+  if (s < 86_400 * 30) {
+    return `${Math.floor(s / 86400)}d`;
+  }
+  return `${Math.floor(s / (86_400 * 30))}mo`;
 }
 
-const pad = (s: string, n: number) => (s.length > n ? s.slice(0, Math.max(0, n - 1)) + "…" : s.padEnd(n));
+const pad = (s: string, n: number) =>
+  s.length > n ? `${s.slice(0, Math.max(0, n - 1))}…` : s.padEnd(n);
 
-const CHECKS: Record<PR["checks"], { icon: string; label: string; color: string }> = {
-  pass: { icon: "●", label: "Checks passing", color: C.green },
-  fail: { icon: "●", label: "Checks failing", color: C.red },
-  pending: { icon: "◌", label: "Checks running", color: C.yellow },
-  none: { icon: "·", label: "No checks", color: C.faint },
+const CHECKS: Record<
+  PR["checks"],
+  { icon: string; label: string; color: string }
+> = {
+  fail: { color: C.red, icon: "●", label: "Checks failing" },
+  none: { color: C.faint, icon: "·", label: "No checks" },
+  pass: { color: C.green, icon: "●", label: "Checks passing" },
+  pending: { color: C.yellow, icon: "◌", label: "Checks running" },
 };
 
 function review(pr: PR): { short: string; label: string; color: string } {
-  if (pr.mergeable === "CONFLICTING") return { short: "conflict", label: "Merge conflicts", color: C.red };
-  if (pr.isDraft) return { short: "draft", label: "Draft", color: C.dim };
+  if (pr.mergeable === "CONFLICTING") {
+    return { short: "conflict", label: "Merge conflicts", color: C.red };
+  }
+  if (pr.isDraft) {
+    return { short: "draft", label: "Draft", color: C.dim };
+  }
   switch (pr.reviewDecision) {
-    case "APPROVED": return { short: "approved", label: "Approved", color: C.green };
-    case "CHANGES_REQUESTED": return { short: "changes", label: "Changes requested", color: C.red };
-    case "REVIEW_REQUIRED": return { short: "review", label: "Review required", color: C.yellow };
-    default: return { short: "", label: "No review required", color: C.dim };
+    case "APPROVED": {
+      return { short: "approved", label: "Approved", color: C.green };
+    }
+    case "CHANGES_REQUESTED": {
+      return { short: "changes", label: "Changes requested", color: C.red };
+    }
+    case "REVIEW_REQUIRED": {
+      return { short: "review", label: "Review required", color: C.yellow };
+    }
+    default: {
+      return { short: "", label: "No review required", color: C.dim };
+    }
   }
 }
 
 function diffColor(line: string) {
-  if (line.startsWith("diff --git")) return { fg: C.accent, attributes: BOLD };
-  if (line.startsWith("+++") || line.startsWith("---") || line.startsWith("index ")) return { fg: C.faint };
-  if (line.startsWith("@@")) return { fg: C.cyan };
-  if (line.startsWith("+")) return { fg: C.green };
-  if (line.startsWith("-")) return { fg: C.red };
+  if (line.startsWith("diff --git")) {
+    return { fg: C.accent, attributes: BOLD };
+  }
+  if (
+    line.startsWith("+++") ||
+    line.startsWith("---") ||
+    line.startsWith("index ")
+  ) {
+    return { fg: C.faint };
+  }
+  if (line.startsWith("@@")) {
+    return { fg: C.cyan };
+  }
+  if (line.startsWith("+")) {
+    return { fg: C.green };
+  }
+  if (line.startsWith("-")) {
+    return { fg: C.red };
+  }
   return { fg: C.text };
 }
 
 // PR bodies are full of bot badges and HTML; keep just the readable text
 function cleanBody(body: string) {
   const text = (body ?? "")
-    .replace(/\r/g, "")
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/<[^>]+>/g, "")
-    .replace(/\t/g, "  ")
-    .replace(/\n{3,}/g, "\n\n")
+    .replaceAll("\r", "")
+    .replaceAll(/<!--[\s\S]*?-->/g, "")
+    .replaceAll(/<[^>]+>/g, "")
+    .replaceAll("	", "  ")
+    .replaceAll(/\n{3,}/g, "\n\n")
     .trim();
   return text || "No description.";
 }
 
-function Button({ label, color, onPress }: { label: string; color: string; onPress: () => void }) {
+function Button({
+  label,
+  color,
+  onPress,
+}: {
+  label: string;
+  color: string;
+  onPress: () => void;
+}) {
   return (
-    <box border borderStyle="rounded" borderColor={color} paddingLeft={1} paddingRight={1} height={3} onMouseDown={onPress}>
-      <text fg={color} attributes={BOLD}>{label}</text>
+    <box
+      border
+      borderStyle="rounded"
+      borderColor={color}
+      paddingLeft={1}
+      paddingRight={1}
+      height={3}
+      onMouseDown={onPress}
+    >
+      <text fg={color} attributes={BOLD}>
+        {label}
+      </text>
     </box>
   );
 }
 
-function Sidebar({ pr, width, onMerge, onApprove, onOpen }: {
+function Sidebar({
+  pr,
+  width,
+  onMerge,
+  onApprove,
+  onOpen,
+}: {
   pr: PR;
   width: number;
   onMerge: () => void;
@@ -97,37 +175,65 @@ function Sidebar({ pr, width, onMerge, onApprove, onOpen }: {
   const ci = CHECKS[pr.checks];
   const rv = review(pr);
   return (
-    <box width={width} flexDirection="column" border={["left"]} borderColor={C.border} paddingLeft={2} paddingRight={1} overflow="hidden">
+    <box
+      width={width}
+      flexDirection="column"
+      border={["left"]}
+      borderColor={C.border}
+      paddingLeft={2}
+      paddingRight={1}
+      overflow="hidden"
+    >
       {/* the description can be huge, so only it may shrink; everything above keeps its height */}
       <box flexDirection="column" flexShrink={0}>
-      <text fg={C.text} attributes={BOLD} wrapMode="word">{pr.title}</text>
-      <text fg={C.dim} marginTop={1} wrapMode="none" truncate>
-        <span fg={C.accent}>#{pr.number}</span> · <span fg={C.blue}>{pr.author}</span> · {age(pr.createdAt)} ago
-      </text>
-      <text fg={C.dim} wrapMode="none" truncate>{pr.baseRefName} ← {pr.headRefName}</text>
+        <text fg={C.text} attributes={BOLD} wrapMode="word">
+          {pr.title}
+        </text>
+        <text fg={C.dim} marginTop={1} wrapMode="none" truncate>
+          <span fg={C.accent}>#{pr.number}</span> ·{" "}
+          <span fg={C.blue}>{pr.author}</span> · {age(pr.createdAt)} ago
+        </text>
+        <text fg={C.dim} wrapMode="none" truncate>
+          {pr.baseRefName} ← {pr.headRefName}
+        </text>
 
-      <box flexDirection="column" marginTop={1}>
-        <text fg={ci.color}>{ci.icon} {ci.label}</text>
-        <text fg={rv.color}>{rv.color === C.green ? "✓" : "○"} {rv.label}</text>
-        <text fg={C.dim}>
-          <span fg={C.green}>+{pr.additions}</span> <span fg={C.red}>−{pr.deletions}</span> · {pr.changedFiles} files
+        <box flexDirection="column" marginTop={1}>
+          <text fg={ci.color}>
+            {ci.icon} {ci.label}
+          </text>
+          <text fg={rv.color}>
+            {rv.color === C.green ? "✓" : "○"} {rv.label}
+          </text>
+          <text fg={C.dim}>
+            <span fg={C.green}>+{pr.additions}</span>{" "}
+            <span fg={C.red}>−{pr.deletions}</span> · {pr.changedFiles} files
+          </text>
+        </box>
+
+        <box flexDirection="row" gap={1} marginTop={1}>
+          <Button label="Merge" color={C.green} onPress={onMerge} />
+          <Button label="Approve" color={C.blue} onPress={onApprove} />
+          <Button label="Open" color={C.dim} onPress={onOpen} />
+        </box>
+
+        <text fg={C.border} marginTop={1}>
+          {"─".repeat(Math.max(0, width - 3))}
         </text>
       </box>
-
-      <box flexDirection="row" gap={1} marginTop={1}>
-        <Button label="Merge" color={C.green} onPress={onMerge} />
-        <Button label="Approve" color={C.blue} onPress={onApprove} />
-        <Button label="Open" color={C.dim} onPress={onOpen} />
-      </box>
-
-      <text fg={C.border} marginTop={1}>{"─".repeat(Math.max(0, width - 3))}</text>
-      </box>
-      <text fg={C.dim} wrapMode="word" flexShrink={1}>{cleanBody(pr.body)}</text>
+      <text fg={C.dim} wrapMode="word" flexShrink={1}>
+        {cleanBody(pr.body)}
+      </text>
     </box>
   );
 }
 
-export function App({ repo, method, delay, dryRun, onQuit }: {
+export function App({
+  repo,
+  method,
+  delay,
+  dryRun,
+  onQuit,
+}: {
   repo: string;
   method: MergeMethod;
   delay: number;
@@ -149,7 +255,7 @@ export function App({ repo, method, delay, dryRun, onQuit }: {
   const pendingRef = useRef<Pending | null>(null);
   pendingRef.current = pending;
 
-  const flash = (text: string, color = C.text) => setToast({ text, color });
+  const flash = (text: string, color = C.text) => setToast({ color, text });
 
   const refresh = useCallback(async () => {
     setBusy(true);
@@ -157,8 +263,8 @@ export function App({ repo, method, delay, dryRun, onQuit }: {
       const list = await listPRs(repo);
       const skip = pendingRef.current?.pr.number;
       setPrs(list.filter((p) => p.number !== skip));
-    } catch (e: any) {
-      flash(`✗ ${e.message}`, C.red);
+    } catch (error: any) {
+      flash(`✗ ${error.message}`, C.red);
       setPrs((p) => p ?? []);
     } finally {
       setBusy(false);
@@ -166,7 +272,13 @@ export function App({ repo, method, delay, dryRun, onQuit }: {
   }, [repo]);
 
   useEffect(() => void refresh(), [refresh]);
-  useEffect(() => void viewer().then(setMe).catch(() => {}), []);
+  useEffect(
+    () =>
+      void viewer()
+        .then(setMe)
+        .catch(() => {}),
+    []
+  );
 
   const all = prs ?? [];
   const tabs: Record<Tab, PR[]> = {
@@ -179,13 +291,15 @@ export function App({ repo, method, delay, dryRun, onQuit }: {
 
   // load the diff whenever the diff view points at a new PR
   useEffect(() => {
-    if (view !== "diff" || !pr) return;
+    if (view !== "diff" || !pr) {
+      return;
+    }
     let live = true;
     setDiff(null);
     setScroll(0);
     getDiff(repo, pr.number)
-      .then((d) => live && setDiff(d.replace(/\t/g, "  ").split("\n")))
-      .catch((e) => live && setDiff([`✗ ${e.message}`]));
+      .then((d) => live && setDiff(d.replaceAll("	", "  ").split("\n")))
+      .catch((error) => live && setDiff([`✗ ${error.message}`]));
     return () => void (live = false);
   }, [view, pr?.number, repo]);
 
@@ -202,9 +316,9 @@ export function App({ repo, method, delay, dryRun, onQuit }: {
     try {
       await merge(repo, p.pr.number, method);
       flash(`✓ Merged #${p.pr.number} ${p.pr.title}`, C.green);
-    } catch (e: any) {
+    } catch (error: any) {
       reinsert(p);
-      flash(`✗ #${p.pr.number}: ${e.message}`, C.red);
+      flash(`✗ #${p.pr.number}: ${error.message}`, C.red);
     }
   };
 
@@ -215,17 +329,26 @@ export function App({ repo, method, delay, dryRun, onQuit }: {
       void doMerge(pendingRef.current);
     }
     const index = all.indexOf(target);
-    const p: Pending = { pr: target, index, timer: setTimeout(() => void doMerge(p), delay * 1000) };
+    const p: Pending = {
+      index,
+      pr: target,
+      timer: setTimeout(() => void doMerge(p), delay * 1000),
+    };
     setPending(p);
     setPrs(all.filter((x) => x !== target));
     setCursor((c) => Math.max(0, Math.min(c, list.length - 2)));
     setView("list");
-    flash(`Merging #${target.number} in ${delay}s (${method}) · z to undo`, C.yellow);
+    flash(
+      `Merging #${target.number} in ${delay}s (${method}) · z to undo`,
+      C.yellow
+    );
   };
 
   const undo = () => {
     const p = pendingRef.current;
-    if (!p) return flash("Nothing to undo", C.dim);
+    if (!p) {
+      return flash("Nothing to undo", C.dim);
+    }
     clearTimeout(p.timer);
     setPending(null);
     reinsert(p);
@@ -247,8 +370,8 @@ export function App({ repo, method, delay, dryRun, onQuit }: {
       await approve(repo, target.number);
       flash(`✓ Approved #${target.number}`, C.green);
       void refresh();
-    } catch (e: any) {
-      flash(`✗ ${e.message}`, C.red);
+    } catch (error: any) {
+      flash(`✗ ${error.message}`, C.red);
     }
   };
 
@@ -268,46 +391,93 @@ export function App({ repo, method, delay, dryRun, onQuit }: {
 
   useKeyboard((key: KeyEvent) => {
     const ch = key.sequence;
-    if (key.ctrl && key.name === "c") return void quit();
-    if (ch === "z") return undo();
-    if (ch === "r") return void refresh();
+    if (key.ctrl && key.name === "c") {
+      return void quit();
+    }
+    if (ch === "z") {
+      return undo();
+    }
+    if (ch === "r") {
+      return void refresh();
+    }
 
     if (view === "list") {
-      if (ch === "q") return void quit();
-      if (ch === "j" || key.name === "down") setCursor((c) => Math.min(c + 1, list.length - 1));
-      else if (ch === "k" || key.name === "up") setCursor((c) => Math.max(c - 1, 0));
-      else if (ch === "g") setCursor(0);
-      else if (ch === "G") setCursor(list.length - 1);
-      else if (key.name === "tab") cycleTab(key.shift ? -1 : 1);
-      else if (ch === "1" || ch === "2" || ch === "3") selectTab(TABS[Number(ch) - 1]!.id);
-      else if (ch === "p") setSidebar((s) => !s);
-      else if (!pr) return;
-      else if (key.name === "return" || ch === "d") setView("diff");
-      else if (ch === "m") queueMerge(pr);
-      else if (ch === "a") void doApprove(pr);
-      else if (ch === "o") openInBrowser(pr.url);
+      if (ch === "q") {
+        return void quit();
+      }
+      if (ch === "j" || key.name === "down") {
+        setCursor((c) => Math.min(c + 1, list.length - 1));
+      } else if (ch === "k" || key.name === "up") {
+        setCursor((c) => Math.max(c - 1, 0));
+      } else if (ch === "g") {
+        setCursor(0);
+      } else if (ch === "G") {
+        setCursor(list.length - 1);
+      } else if (key.name === "tab") {
+        cycleTab(key.shift ? -1 : 1);
+      } else if (ch === "1" || ch === "2" || ch === "3") {
+        selectTab(TABS[Number(ch) - 1]!.id);
+      } else if (ch === "p") {
+        setSidebar((s) => !s);
+      } else if (!pr) {
+        return;
+      } else if (key.name === "return" || ch === "d") {
+        setView("diff");
+      } else if (ch === "m") {
+        queueMerge(pr);
+      } else if (ch === "a") {
+        void doApprove(pr);
+      } else if (ch === "o") {
+        openInBrowser(pr.url);
+      }
       return;
     }
 
-    if (key.name === "escape" || ch === "q" || ch === "h" || key.name === "left") setView("list");
-    else if (ch === "j" || key.name === "down") setScroll((s) => Math.min(s + 1, maxScroll));
-    else if (ch === "k" || key.name === "up") setScroll((s) => Math.max(s - 1, 0));
-    else if (ch === " " || key.name === "pagedown") setScroll((s) => Math.min(s + diffH - 2, maxScroll));
-    else if (ch === "b" || ch === "u" || key.name === "pageup") setScroll((s) => Math.max(s - (diffH - 2), 0));
-    else if (ch === "g") setScroll(0);
-    else if (ch === "G") setScroll(maxScroll);
-    else if (ch === "J") setCursor((c) => Math.min(c + 1, list.length - 1));
-    else if (ch === "K") setCursor((c) => Math.max(c - 1, 0));
-    else if (pr && ch === "m") queueMerge(pr);
-    else if (pr && ch === "a") void doApprove(pr);
-    else if (pr && ch === "o") openInBrowser(pr.url);
+    if (
+      key.name === "escape" ||
+      ch === "q" ||
+      ch === "h" ||
+      key.name === "left"
+    ) {
+      setView("list");
+    } else if (ch === "j" || key.name === "down") {
+      setScroll((s) => Math.min(s + 1, maxScroll));
+    } else if (ch === "k" || key.name === "up") {
+      setScroll((s) => Math.max(s - 1, 0));
+    } else if (ch === " " || key.name === "pagedown") {
+      setScroll((s) => Math.min(s + diffH - 2, maxScroll));
+    } else if (ch === "b" || ch === "u" || key.name === "pageup") {
+      setScroll((s) => Math.max(s - (diffH - 2), 0));
+    } else if (ch === "g") {
+      setScroll(0);
+    } else if (ch === "G") {
+      setScroll(maxScroll);
+    } else if (ch === "J") {
+      setCursor((c) => Math.min(c + 1, list.length - 1));
+    } else if (ch === "K") {
+      setCursor((c) => Math.max(c - 1, 0));
+    } else if (pr && ch === "m") {
+      queueMerge(pr);
+    } else if (pr && ch === "a") {
+      void doApprove(pr);
+    } else if (pr && ch === "o") {
+      openInBrowser(pr.url);
+    }
   });
 
   const header = (
-    <box flexDirection="row" justifyContent="space-between" height={1} paddingLeft={1} paddingRight={1}>
+    <box
+      flexDirection="row"
+      justifyContent="space-between"
+      height={1}
+      paddingLeft={1}
+      paddingRight={1}
+    >
       <text>
-        <span fg={C.accent} attributes={BOLD}>prs</span>
-        <span fg={C.text}>  {repo}</span>
+        <span fg={C.accent} attributes={BOLD}>
+          prs
+        </span>
+        <span fg={C.text}> {repo}</span>
         <span fg={C.dim}>{busy ? "  ⟳" : ""}</span>
       </text>
       <text fg={C.dim}>
@@ -324,7 +494,10 @@ export function App({ repo, method, delay, dryRun, onQuit }: {
         return (
           <box key={t.id} onMouseDown={() => selectTab(t.id)}>
             <text fg={active ? C.accent : C.dim} attributes={active ? BOLD : 0}>
-              {i + 1} {t.label} <span fg={active ? C.text : C.faint}>{prs ? tabs[t.id].length : ""}</span>
+              {i + 1} {t.label}{" "}
+              <span fg={active ? C.text : C.faint}>
+                {prs ? tabs[t.id].length : ""}
+              </span>
             </text>
           </box>
         );
@@ -334,7 +507,9 @@ export function App({ repo, method, delay, dryRun, onQuit }: {
 
   const footer = (
     <box flexDirection="column" height={2} paddingLeft={1} paddingRight={1}>
-      <text fg={toast?.color ?? C.dim} wrapMode="none" truncate>{toast?.text ?? " "}</text>
+      <text fg={toast?.color ?? C.dim} wrapMode="none" truncate>
+        {toast?.text ?? " "}
+      </text>
       <text fg={C.faint} wrapMode="none" truncate>
         {view === "list"
           ? "j/k move · ⏎ diff · m merge · a approve · o open · z undo · tab switch · p sidebar · r refresh · q quit"
@@ -358,45 +533,73 @@ export function App({ repo, method, delay, dryRun, onQuit }: {
       <box flexGrow={1} flexDirection="column" paddingLeft={1} paddingRight={1}>
         <text wrapMode="none" truncate>
           <span fg={C.accent}>#{pr.number} </span>
-          <span fg={C.text} attributes={BOLD}>{pr.title}</span>
-          <span fg={C.dim}>  </span>
+          <span fg={C.text} attributes={BOLD}>
+            {pr.title}
+          </span>
+          <span fg={C.dim}> </span>
           <span fg={C.green}>+{pr.additions} </span>
           <span fg={C.red}>−{pr.deletions}</span>
           <span fg={C.dim}> · {pr.changedFiles} files</span>
         </text>
         <text fg={C.border}>{"─".repeat(Math.max(0, width - 2))}</text>
-        {(diff ?? ["Loading diff…"]).slice(scroll, scroll + diffH).map((line, i) => (
-          <text key={scroll + i} wrapMode="none" truncate {...diffColor(line)}>{line || " "}</text>
-        ))}
+        {(diff ?? ["Loading diff…"])
+          .slice(scroll, scroll + diffH)
+          .map((line, i) => (
+            <text
+              key={scroll + i}
+              wrapMode="none"
+              truncate
+              {...diffColor(line)}
+            >
+              {line || " "}
+            </text>
+          ))}
       </box>
     );
-  } else if (!list.length) {
-    body = (
-      <box flexGrow={1} alignItems="center" justifyContent="center" flexDirection="column">
-        <text fg={C.green} attributes={BOLD}>Inbox zero.</text>
-        <text fg={C.dim}>Nothing in {TABS.find((t) => t.id === tab)!.label}.</text>
-      </box>
-    );
-  } else {
+  } else if (list.length) {
     const authorW = 16;
-    const titleW = Math.max(12, tableW - 2 - 7 - 2 - authorW - 5 - 3 - 9 - 15 - 1);
-    const start = Math.max(0, Math.min(cursor - Math.floor(bodyH / 2), list.length - bodyH));
+    const titleW = Math.max(
+      12,
+      tableW - 2 - 7 - 2 - authorW - 5 - 3 - 9 - 15 - 1
+    );
+    const start = Math.max(
+      0,
+      Math.min(cursor - Math.floor(bodyH / 2), list.length - bodyH)
+    );
     body = (
       <box flexGrow={1} flexDirection="row">
         <box width={tableW} flexDirection="column">
           <text fg={C.faint} wrapMode="none" truncate>
-            {"  " + "#".padEnd(7) + pad("Title", titleW) + "  " + pad("Author", authorW) + " Age " + "CI " + "Review".padEnd(9) + "Diff".padStart(15)}
+            {"  " +
+              "#".padEnd(7) +
+              pad("Title", titleW) +
+              "  " +
+              pad("Author", authorW) +
+              " Age " +
+              "CI " +
+              "Review".padEnd(9) +
+              "Diff".padStart(15)}
           </text>
           {list.slice(start, start + bodyH).map((p, i) => {
             const selected = start + i === cursor;
             const ci = CHECKS[p.checks];
             const rv = review(p);
             return (
-              <box key={p.number} height={1} backgroundColor={selected ? C.selected : C.bg} onMouseDown={() => setCursor(start + i)}>
+              <box
+                key={p.number}
+                height={1}
+                backgroundColor={selected ? C.selected : C.bg}
+                onMouseDown={() => setCursor(start + i)}
+              >
                 <text wrapMode="none" truncate>
                   <span fg={C.accent}>{selected ? "▌ " : "  "}</span>
                   <span fg={C.dim}>{`#${p.number}`.padEnd(7)}</span>
-                  <span fg={p.isDraft ? C.dim : C.text} attributes={selected ? BOLD : 0}>{pad(p.title, titleW)}  </span>
+                  <span
+                    fg={p.isDraft ? C.dim : C.text}
+                    attributes={selected ? BOLD : 0}
+                  >
+                    {pad(p.title, titleW)}{" "}
+                  </span>
                   <span fg={C.blue}>{pad(p.author, authorW)}</span>
                   <span fg={C.dim}>{age(p.createdAt).padStart(4)} </span>
                   <span fg={ci.color}>{` ${ci.icon} `}</span>
@@ -419,10 +622,31 @@ export function App({ repo, method, delay, dryRun, onQuit }: {
         ) : null}
       </box>
     );
+  } else {
+    body = (
+      <box
+        flexGrow={1}
+        alignItems="center"
+        justifyContent="center"
+        flexDirection="column"
+      >
+        <text fg={C.green} attributes={BOLD}>
+          Inbox zero.
+        </text>
+        <text fg={C.dim}>
+          Nothing in {TABS.find((t) => t.id === tab)!.label}.
+        </text>
+      </box>
+    );
   }
 
   return (
-    <box flexDirection="column" width={width} height={height} backgroundColor={C.bg}>
+    <box
+      flexDirection="column"
+      width={width}
+      height={height}
+      backgroundColor={C.bg}
+    >
       {header}
       {tabBar}
       <box flexGrow={1} flexDirection="column" marginTop={1}>

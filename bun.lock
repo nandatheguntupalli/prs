@@ -14,7 +14,7 @@
         "@types/react": "^19.3.0",
         "oxfmt": "^0.70.0",
         "oxlint": "^1.85.0",
-        "ultracite": "7.12.0",
+        "ultracite": "^7.12.0",
       },
       "peerDependencies": {
         "typescript": "^7",
