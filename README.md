@@ -30,7 +30,9 @@ prs --dry-run         # nothing is merged or approved
 | `u` | update branch (merge the base branch in) | page up |
 | `a` | approve | approve |
 | `o` | open in browser | open in browser |
-| `tab` / `1`–`4` | switch between All, Mine, Review requested, Graph |  |
+| `tab` / `1`–`3` | switch between All, Mine, Review requested |  |
+| `h` / `l` | move between the graph and the PR list | back / |
+| `v` | show or hide the graph |  |
 | `p` | toggle the sidebar |  |
 | `space` / `b` |  | page down / up |
 | `J` / `K` |  | next / prev |
@@ -41,9 +43,9 @@ The mouse works too: click a row, a tab, or the **Merge**, **Update**, and **Clo
 
 ## Graph
 
-Tab `4` shows the commit graph, drawn like VS Code's: one row per commit, colored lanes, and branch pills. Press `⏎` on a commit to see it.
+The graph sits on the left, drawn like VS Code's: one row per commit, colored lanes, and the branch pill right next to its commit. Press `h` to move into it, `j`/`k` to walk the history, `⏎` to see a commit, and `l` to go back to the PRs. PR keys like `m` don't act while you're in the graph.
 
-Run `prs` inside a clone and the graph reads that clone's history. Anywhere else, `prs` keeps a small bare clone (no file contents until you open a commit) in `~/.cache/prs`. Either way it fetches in the background when the graph opens.
+Run `prs` inside a clone and the graph reads that clone's history. Anywhere else, `prs` keeps a small bare clone (no file contents until you open a commit) in `~/.cache/prs`. Either way it fetches in the background.
 
 Merges and closes wait a few seconds before running, like Superhuman's undo send. Hit `z` to take one back. Quitting while one is pending runs it right away.
 
