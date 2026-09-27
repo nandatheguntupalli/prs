@@ -10,7 +10,7 @@
 
 </div>
 
-![prs showing the open pull requests in charmbracelet/glow, with the selected PR's details on the right](.github/assets/screenshot.png)
+![prs showing the open pull requests in neovim/neovim, with the selected PR's details on the right](.github/assets/screenshot.png)
 
 ---
 
