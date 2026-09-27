@@ -2,7 +2,7 @@
 
 # prs
 
-**A keyboard-first terminal UI for reviewing and merging pull requests.**
+**Review and merge pull requests from your terminal.**
 
 [![CI](https://github.com/nandatheguntupalli/prs/actions/workflows/ci.yml/badge.svg)](https://github.com/nandatheguntupalli/prs/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/nandatheguntupalli/prs?color=2dd4bf)](https://github.com/nandatheguntupalli/prs/releases/latest) [![Homebrew](https://img.shields.io/badge/homebrew-nandatheguntupalli%2Ftap-2dd4bf?logo=homebrew&logoColor=white)](https://github.com/nandatheguntupalli/homebrew-tap) [![License: MIT](https://img.shields.io/badge/license-MIT-2dd4bf)](LICENSE) [![Built with Bun](https://img.shields.io/badge/built%20with-Bun-000?logo=bun)](https://bun.sh)
 
@@ -12,14 +12,15 @@
 
 ---
 
-## Features
+## What it does
 
-- **Merge in one keystroke.** `m` merges, and `z` undoes it for a few seconds after.
-- **Review without leaving the terminal.** Read diffs with inline review comments, comment on lines or ranges, approve or request changes.
-- **CI at a glance.** See every check, then drill into an Actions job's steps and logs, jumping between errors.
-- **Stacked PRs.** Stacks are shown together and merged in one go, including GitHub's native stacks.
-- **Your whole inbox.** One repo, or every PR you're involved in across GitHub, plus your own tabs from any GitHub search.
-- **Fits your setup.** Themes that follow your terminal's light or dark mode, mouse support, and open-in-editor.
+prs lists the open pull requests in a repo, or every PR you're involved in across GitHub, and lets you work through them from the keyboard.
+
+- Merge, close, approve or update a branch with a single key. Merges wait a few seconds first, so there's time to undo.
+- Read the diff with review comments inline, and leave comments on a line or a range of lines.
+- Check CI without opening a browser. You can open an Actions job and jump straight to the lines that errored.
+- Stacked PRs show up together, and merging one merges everything under it. GitHub's native stacks work too.
+- Add your own tabs from any GitHub search, pick a theme (or let it follow your terminal's light and dark mode), and open a PR's clone in your editor.
 
 ## Install
 
@@ -27,9 +28,9 @@
 brew install nandatheguntupalli/tap/prs
 ```
 
-Or grab a binary for macOS or Linux from the [latest release](https://github.com/nandatheguntupalli/prs/releases/latest).
+There are also macOS and Linux binaries on the [releases page](https://github.com/nandatheguntupalli/prs/releases/latest).
 
-prs signs in with your [`gh`](https://cli.github.com) login (`gh auth login`), or with `GITHUB_TOKEN` if it's set.
+prs uses your [`gh`](https://cli.github.com) login, so run `gh auth login` first if you haven't. It'll use `GITHUB_TOKEN` instead if that's set.
 
 ## Usage
 
@@ -43,11 +44,11 @@ prs --delay 2         # seconds before a merge or close goes through (default 4)
 prs --dry-run         # try it out without changing anything on GitHub
 ```
 
-Press `?` for every key, or `ctrl+p` for the command palette.
+`?` shows every key and `ctrl+p` opens the command palette.
 
-Inside a repo you get **All**, **Mine**, **Review requested**, **Merged** and **Closed** tabs. With `--all` you get **Mine**, **Review requested**, **Involved**, **Merged** and **Closed** across every repo.
+In a repo, the tabs are All, Mine, Review requested, Merged and Closed. With `--all` they're Mine, Review requested, Involved, Merged and Closed, across every repo you have access to.
 
-Merges and closes wait a few seconds before they go through, so `z` can take them back. After that the PR stays in the list, marked **Merged** or **Closed**, until you refresh with `r`.
+Merges and closes wait a few seconds before they go through, and `z` cancels them in that window. Once a PR is merged or closed it stays in the list with a Merged or Closed badge until you refresh with `r`, the same way GitHub leaves it on the page.
 
 ## Keys
 
@@ -78,7 +79,7 @@ Merges and closes wait a few seconds before they go through, so `z` can take the
 | `j` `k`           | move           |
 | `gg` `G`          | top, bottom    |
 | `ctrl+d` `ctrl+u` | page           |
-| `tab` `1`–`9`     | switch tabs    |
+| `tab` `1`-`9`     | switch tabs    |
 | `/`               | filter         |
 | `⏎` `d`           | open diff      |
 | `[` `]`           | details tabs   |
@@ -103,15 +104,15 @@ Merges and closes wait a few seconds before they go through, so `z` can take the
 
 ## Stacked PRs
 
-When one PR's base is another PR's branch, they're grouped as a stack. Merging a PR in a stack merges everything below it too, and the button tells you how many.
+If one PR's base branch is another PR's branch, prs groups them as a stack. Merging a PR in a stack also merges everything below it, and the Merge button shows how many PRs that is.
 
-GitHub's native stacks are merged with `gh stack merge`, so you'll need the [gh-stack](https://github.com/github/gh-stack) extension. Other chains are merged top-down into each parent's branch, and PRs above are re-pointed before any branch is deleted.
+Native GitHub stacks go through `gh stack merge`, which needs the [gh-stack](https://github.com/github/gh-stack) extension. Other stacks are merged from the top down, each PR into its parent's branch. Any PRs above get pointed at the new base before a branch is deleted, so GitHub doesn't close them.
 
-> [!NOTE] After a squash merge, the PRs above still carry the old commits and need a restack (`gh stack sync` or `git rebase --onto`). prs won't do that for you, since it means force-pushing someone else's branch.
+One catch with squash merges: the PRs above still have the original commits, so they'll need a restack (`gh stack sync` or `git rebase --onto`). prs leaves that to you because it means force-pushing someone else's branch.
 
 ## Settings
 
-Settings live in `~/.config/prs/config.json`:
+Settings go in `~/.config/prs/config.json`. Everything is optional:
 
 ```jsonc
 {
@@ -140,11 +141,11 @@ Settings live in `~/.config/prs/config.json`:
 }
 ```
 
-Without `editorCommand`, `e` uses `$VISUAL` or `$EDITOR`.
+If you don't set `editorCommand`, `e` opens the clone in `$VISUAL` or `$EDITOR`.
 
 ## Contributing
 
-Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) to get set up.
+Issues and PRs are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers setup, but the short version is:
 
 ```sh
 bun install

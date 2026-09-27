@@ -54,7 +54,7 @@ const EmptyList = ({
       </text>
       <text fg={C.dim}>
         {filter
-          ? `Nothing in ${emptyLabel} matches “${filter}”.`
+          ? `Nothing in ${emptyLabel} matches "${filter}".`
           : `Nothing in ${emptyLabel}.`}
       </text>
     </Centered>

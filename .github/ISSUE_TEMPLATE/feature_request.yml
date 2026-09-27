@@ -1,11 +1,11 @@
 name: Feature request
-description: An idea to make prs better
+description: Suggest something prs should do
 labels: [enhancement]
 body:
   - type: textarea
     id: idea
     attributes:
       label: What would you like?
-      description: What you're trying to do and how you'd like prs to help.
+      description: What are you trying to do, and what would you want prs to do about it?
     validations:
       required: true

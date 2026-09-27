@@ -35,8 +35,10 @@ if (values.version) {
 if (values.help) {
   console.log(`prs [owner/repo] [--all] [--method merge|squash|rebase] [--update rebase|merge] [--delay seconds] [--dry-run]
 
-Keyboard-first PR inbox. Shows the repo in the current directory, or with --all (or
-outside a repo) your pull requests across GitHub. Settings: ~/.config/prs/config.json`);
+Review and merge pull requests from your terminal. Shows the repo you're in, or your
+PRs across GitHub with --all (or when you're not in a repo).
+
+Settings: ~/.config/prs/config.json`);
   process.exit(0);
 }
 

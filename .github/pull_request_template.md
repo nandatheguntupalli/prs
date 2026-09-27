@@ -1,10 +1,10 @@
 ## What changed
 
-<!-- A sentence or two, and why. Link the issue if there is one. -->
+<!-- What does this change and why? Link the issue if there is one. -->
 
 ## How I tested it
 
-<!-- e.g. ran `bun start owner/repo --dry-run` and tried … -->
+<!-- For example: ran `bun start owner/repo --dry-run` and merged a stacked PR. -->
 
 - [ ] `bun run check`, `bun run typecheck` and `bun test` pass
 - [ ] README updated if keys or settings changed

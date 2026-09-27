@@ -1,10 +1,10 @@
 # Contributing
 
-Thanks for taking a look! Bug reports, ideas and pull requests are all welcome.
+If you've found a bug or want to add something, go for it. Open an issue first for anything big so we can talk it through.
 
 ## Getting set up
 
-You'll need [Bun](https://bun.sh) and the [GitHub CLI](https://cli.github.com), logged in with `gh auth login`.
+You need [Bun](https://bun.sh) and the [GitHub CLI](https://cli.github.com). Log in with `gh auth login` if you haven't already.
 
 ```sh
 git clone https://github.com/nandatheguntupalli/prs
@@ -13,7 +13,7 @@ bun install
 bun start owner/repo --dry-run
 ```
 
-`--dry-run` keeps anything from changing on GitHub, so it's the safe way to try things against a real repo.
+With `--dry-run`, nothing you do in the app touches GitHub, so you can point it at a real repo and press whatever you like.
 
 ## Before you open a PR
 
@@ -23,7 +23,7 @@ bun run typecheck
 bun test
 ```
 
-CI runs the same three.
+CI runs the same checks on every PR.
 
 ## Where things are
 
@@ -39,4 +39,4 @@ CI runs the same three.
 
 ## Releasing
 
-Maintainers only: `bun run release [patch|minor|major]` tags a version. CI builds the binaries, publishes the GitHub release and updates the [Homebrew tap](https://github.com/nandatheguntupalli/homebrew-tap).
+This part is for maintainers. `bun run release [patch|minor|major]` bumps the version and pushes a tag. CI then builds the binaries, publishes the release and updates the formula in the [Homebrew tap](https://github.com/nandatheguntupalli/homebrew-tap).
