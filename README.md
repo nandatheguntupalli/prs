@@ -45,6 +45,14 @@ prs --text-graph      # draw the graph with characters, even if the terminal can
 
 The mouse works too: click a row, a tab, or the **Merge**, **Update**, and **Close** buttons in the sidebar, and drag the lines between panes to resize them. Pane sizes are remembered in `~/.config/prs/layout.json`. The sidebar shows how far a PR's branch is behind its base, and **Update** appears when it is.
 
+## Stacked PRs
+
+PRs that build on each other (one PR's base is another PR's branch, the way `gh stack` and Graphite make them) are shown together, top first, joined by `╭ ├ ╰`. The sidebar lists the whole stack.
+
+Merging a stacked PR merges it and everything below it, and the button says how many (**Merge 3**). GitHub's native stacks go through `gh stack merge`, so install the [gh-stack](https://github.com/github/gh-stack) extension if you use them. Plain chains are merged top-down, each PR into its parent's branch, so the bottom lands in `main` carrying the rest. PRs above the one you merge are re-pointed at the new base before any branch is deleted.
+
+After a squash merge, PRs higher in the stack still carry the original commits and will show conflicts until they're restacked (`gh stack sync`, or `git rebase --onto`). `prs` doesn't do that for you, since it means force-pushing someone's branch.
+
 ## Graph
 
 The graph sits on the left, drawn like VS Code's: one row per commit, colored lanes, and the branch pill right next to its commit. Press `h` to move into it, `j`/`k` to walk the history, `⏎` to see a commit, and `l` to go back to the PRs. PR keys like `m` don't act while you're in the graph.

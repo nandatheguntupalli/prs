@@ -10,14 +10,25 @@ export type PendingKind = "merge" | "close";
 
 interface Pending {
   kind: PendingKind;
-  pr: PR;
-  index: number;
+  // for a stack merge, the PR and everything below it, top first
+  prs: PR[];
+  nativeStack: number | null;
+  // the list as it was, so undo can put everything back where it was
+  before: PR[];
   timer: ReturnType<typeof setTimeout>;
 }
 
 const VERBS: Record<PendingKind, { doing: string; done: string }> = {
   close: { doing: "Closing", done: "Closed" },
   merge: { doing: "Merging", done: "Merged" },
+};
+
+const describe = (prs: PR[]) => {
+  const [top] = prs;
+  const below = prs.length - 1;
+  return below > 0
+    ? `#${top?.number} and ${below} below it`
+    : `#${top?.number}`;
 };
 
 // merge and close wait a few seconds before running, so they can be undone like Superhuman's undo send
@@ -27,55 +38,71 @@ export const usePendingAction = ({
   delay,
   flash,
   setPrs,
+  onSettled,
 }: {
   repo: string;
   method: MergeMethod;
   delay: number;
   flash: Flash;
   setPrs: Dispatch<SetStateAction<PR[] | null>>;
+  // runs after an action lands or fails, to reload what GitHub now says
+  onSettled: () => void;
 }) => {
   // only read from handlers, so it doesn't need to be state
   const pending = useRef<Pending | null>(null);
 
   const reinsert = (p: Pending) =>
     setPrs((cur) => {
-      const next = [...(cur ?? [])];
-      next.splice(Math.min(p.index, next.length), 0, p.pr);
-      return next;
+      const back = new Set(p.prs.map((x) => x.number));
+      const current = (cur ?? []).filter((x) => !back.has(x.number));
+      const order = new Map(p.before.map((x, i) => [x.number, i]));
+      return [...current, ...p.prs].toSorted(
+        (a, b) => (order.get(a.number) ?? 0) - (order.get(b.number) ?? 0)
+      );
     });
 
   const run = async (p: Pending) => {
     pending.current = null;
     const verb = VERBS[p.kind];
-    flash(`${verb.doing} #${p.pr.number}…`, C.yellow);
+    flash(`${verb.doing} ${describe(p.prs)}…`, C.yellow);
     try {
       await (p.kind === "merge"
-        ? merge(repo, p.pr, method)
-        : closePR(repo, p.pr.number));
-      flash(`✓ ${verb.done} #${p.pr.number} ${p.pr.title}`, C.green);
+        ? merge(repo, p.prs, method, p.nativeStack)
+        : closePR(repo, p.prs[0]?.number ?? 0));
+      flash(
+        `✓ ${verb.done} ${describe(p.prs)} ${p.prs[0]?.title ?? ""}`,
+        C.green
+      );
     } catch (error) {
       reinsert(p);
-      flash(`✗ #${p.pr.number}: ${errorMessage(error)}`, C.red);
+      flash(`✗ ${describe(p.prs)}: ${errorMessage(error)}`, C.red);
     }
+    onSettled();
   };
 
-  const queue = (kind: PendingKind, target: PR, all: PR[]) => {
+  const queue = (
+    kind: PendingKind,
+    prs: PR[],
+    all: PR[],
+    nativeStack: number | null = null
+  ) => {
     // a second action flushes the first immediately
     if (pending.current) {
       clearTimeout(pending.current.timer);
       run(pending.current);
     }
     const p: Pending = {
-      index: all.indexOf(target),
+      before: all,
       kind,
-      pr: target,
+      nativeStack,
+      prs,
       timer: setTimeout(() => run(p), delay * 1000),
     };
     pending.current = p;
-    setPrs(all.filter((x) => x !== target));
+    setPrs(all.filter((x) => !prs.includes(x)));
     const how = kind === "merge" ? ` (${method})` : "";
     flash(
-      `${VERBS[kind].doing} #${target.number} in ${delay}s${how} · z to undo`,
+      `${VERBS[kind].doing} ${describe(prs)} in ${delay}s${how} · z to undo`,
       C.yellow
     );
   };
@@ -89,7 +116,7 @@ export const usePendingAction = ({
     clearTimeout(p.timer);
     pending.current = null;
     reinsert(p);
-    flash(`↶ Undid ${p.kind} of #${p.pr.number}`, C.cyan);
+    flash(`↶ Undid ${p.kind} of ${describe(p.prs)}`, C.cyan);
   };
 
   // quitting runs whatever is pending right away rather than dropping it
@@ -101,9 +128,9 @@ export const usePendingAction = ({
     }
   };
 
-  const pendingNumber = () => pending.current?.pr.number;
+  const pendingNumbers = () => pending.current?.prs.map((x) => x.number) ?? [];
 
-  return { flush, pendingNumber, queue, undo };
+  return { flush, pendingNumbers, queue, undo };
 };
 
 const branchKey = (pr: PR) => `${pr.number}:${pr.headRefName}`;

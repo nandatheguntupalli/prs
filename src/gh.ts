@@ -23,10 +23,17 @@ export interface PR {
   headOwner: string;
   // the branch lives in a fork, so merging shouldn't try to delete it
   isCrossRepository: boolean;
+  // set when the PR is part of one of GitHub's native stacks
+  stackNumber: number | null;
+  stackPosition: number | null;
 }
 
-const run = async (cmd: string[]): Promise<string> => {
+const run = async (
+  cmd: string[],
+  env: Record<string, string> = {}
+): Promise<string> => {
   const proc = Bun.spawn(cmd, {
+    env: { ...process.env, ...env },
     stderr: "pipe",
     stdin: "ignore",
     stdout: "pipe",
@@ -37,7 +44,12 @@ const run = async (cmd: string[]): Promise<string> => {
     proc.exited,
   ]);
   if (code !== 0) {
-    throw new Error(err.trim().split("\n")[0] || `${cmd[0]} exited ${code}`);
+    // gh and its extensions prefix errors with their own ✗
+    const reason = err
+      .trim()
+      .split("\n")[0]
+      ?.replace(/^✗\s*/u, "");
+    throw new Error(reason || `${cmd[0]} exited ${code}`);
   }
   return out;
 };
@@ -129,6 +141,8 @@ const LIST_QUERY = `
           additions deletions changedFiles url body isCrossRepository
           author { login }
           headRepositoryOwner { login }
+          stack { number }
+          stackEntry { position }
           commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
           reviewRequests(first: 20) {
             nodes { requestedReviewer { ... on User { login } ... on Team { slug } } }
@@ -142,7 +156,17 @@ const LIST_QUERY = `
 interface ListResponse {
   repository: {
     pullRequests: {
-      nodes: (Omit<PR, "author" | "checks" | "reviewRequests" | "headOwner"> & {
+      nodes: (Omit<
+        PR,
+        | "author"
+        | "checks"
+        | "reviewRequests"
+        | "headOwner"
+        | "stackNumber"
+        | "stackPosition"
+      > & {
+        stack: { number: number } | null;
+        stackEntry: { position: number } | null;
         author: { login: string } | null;
         headRepositoryOwner: { login: string } | null;
         reviewDecision: string | null;
@@ -172,7 +196,14 @@ export const listPRs = async (repo: string): Promise<PR[]> => {
   const octokit = await api();
   const data = await octokit.graphql<ListResponse>(LIST_QUERY, split(repo));
   return data.repository.pullRequests.nodes.map(
-    ({ commits, headRepositoryOwner, reviewRequests, ...p }) => {
+    ({
+      commits,
+      headRepositoryOwner,
+      reviewRequests,
+      stack,
+      stackEntry,
+      ...p
+    }) => {
       const rollup = commits.nodes[0]?.commit.statusCheckRollup;
       return {
         ...p,
@@ -185,6 +216,8 @@ export const listPRs = async (repo: string): Promise<PR[]> => {
             (r) => r.requestedReviewer?.login ?? r.requestedReviewer?.slug ?? ""
           )
           .filter(Boolean),
+        stackNumber: stack?.number ?? null,
+        stackPosition: stackEntry?.position ?? null,
       };
     }
   );
@@ -203,12 +236,14 @@ export const getDiff = async (repo: string, n: number) => {
 
 export const dryRun = { enabled: false };
 
-// merges, then deletes the branch like `gh pr merge --delete-branch`
-export const merge = async (repo: string, pr: PR, method: MergeMethod) => {
-  if (dryRun.enabled) {
-    return;
-  }
-  const octokit = await api();
+// merges one PR into its base, then deletes its branch like `gh pr merge --delete-branch`,
+// first pointing any open PRs stacked on that branch at the base instead
+const mergeOne = async (
+  octokit: Octokit,
+  repo: string,
+  pr: PR,
+  method: MergeMethod
+) => {
   await octokit.rest.pulls.merge({
     ...split(repo),
     merge_method: method,
@@ -217,6 +252,20 @@ export const merge = async (repo: string, pr: PR, method: MergeMethod) => {
   if (pr.isCrossRepository) {
     return;
   }
+  const { data: dependents } = await octokit.rest.pulls.list({
+    ...split(repo),
+    base: pr.headRefName,
+    state: "open",
+  });
+  await Promise.all(
+    dependents.map((dependent) =>
+      octokit.rest.pulls.update({
+        ...split(repo),
+        base: pr.baseRefName,
+        pull_number: dependent.number,
+      })
+    )
+  );
   try {
     await octokit.rest.git.deleteRef({
       ...split(repo),
@@ -224,6 +273,34 @@ export const merge = async (repo: string, pr: PR, method: MergeMethod) => {
     });
   } catch {
     // already gone: the repo deletes head branches on merge, or someone beat us to it
+  }
+};
+
+// merges a PR and everything below it in its stack; `plan` is top first, ending at the bottom.
+// A native GitHub stack has to go through gh-stack. A plain chain merges top-down, each PR into
+// its parent's branch, so the bottom lands in the trunk carrying the rest with no re-applied commits.
+export const merge = async (
+  repo: string,
+  plan: PR[],
+  method: MergeMethod,
+  nativeStack: number | null
+) => {
+  const [top] = plan;
+  if (dryRun.enabled || !top) {
+    return;
+  }
+  if (nativeStack !== null) {
+    // gh extensions take the repo from GH_REPO rather than a flag
+    await run(
+      ["gh", "stack", "merge", String(top.number), "--yes", `--${method}`],
+      { GH_REPO: repo }
+    );
+    return;
+  }
+  const octokit = await api();
+  for (const pr of plan) {
+    // oxlint-disable-next-line no-await-in-loop -- each PR merges into the branch the one before it left behind
+    await mergeOne(octokit, repo, pr, method);
   }
 };
 

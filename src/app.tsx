@@ -23,6 +23,8 @@ import { useBehind, useDiff, usePendingAction } from "./hooks.ts";
 import type { DiffTarget, PendingKind } from "./hooks.ts";
 import { clampSize, DEFAULT_SIZES, saveSizes } from "./layout.ts";
 import type { PaneSizes } from "./layout.ts";
+import { findStacks, groupStacks, mergePlan } from "./stacks.ts";
+import type { StackPlace } from "./stacks.ts";
 import { C } from "./theme.ts";
 
 const { BOLD } = TextAttributes;
@@ -214,15 +216,56 @@ interface PRActions {
   handleOpen: Action;
 }
 
+// the PR's whole stack, top first; everything from it down merges with it
+const StackList = ({
+  pr,
+  place,
+  width,
+}: {
+  pr: PR;
+  place: StackPlace;
+  width: number;
+}) => {
+  const { members, native } = place.stack;
+  return (
+    <box flexDirection="column" marginTop={1}>
+      <text fg={C.dim}>
+        <span fg={C.blue}>Stack</span> · {members.length} PRs
+        {native === null ? "" : ` · #${native} on GitHub`}
+      </text>
+      {members.toReversed().map((member, i) => {
+        const index = members.length - 1 - i;
+        const current = member.number === pr.number;
+        return (
+          <text key={member.number} wrapMode="none" truncate>
+            <span fg={C.blue}>{current ? "● " : "○ "}</span>
+            <span
+              fg={index <= place.index ? C.text : C.faint}
+              attributes={current ? BOLD : 0}
+            >
+              {pad(`#${member.number} ${member.title}`, width - 5).trimEnd()}
+            </span>
+          </text>
+        );
+      })}
+    </box>
+  );
+};
+
 const Sidebar = ({
   pr,
   width,
   behind,
+  stack,
+  mergeCount,
   actions,
 }: {
   pr: PR;
   width: number;
   behind: number | undefined;
+  stack: StackPlace | undefined;
+  // how many PRs merging this one takes: it and everything below it in its stack
+  mergeCount: number;
   actions: PRActions;
 }) => {
   const ci = CHECKS[pr.checks];
@@ -262,8 +305,14 @@ const Sidebar = ({
           </text>
         </box>
 
+        {stack ? <StackList pr={pr} place={stack} width={width} /> : null}
+
         <box flexDirection="row" flexWrap="wrap" gap={1} marginTop={1}>
-          <Button label="Merge" color={C.green} onPress={actions.handleMerge} />
+          <Button
+            label={mergeCount > 1 ? `Merge ${mergeCount}` : "Merge"}
+            color={C.green}
+            onPress={actions.handleMerge}
+          />
           <Button
             label="Approve"
             color={C.blue}
@@ -426,8 +475,20 @@ const AUTHOR_W = 16;
 // below this width the table drops the author, age, and diff columns
 const COMPACT_W = 90;
 
+// joins a stack's rows in the table, top first: ╭ at the top, ├ in the middle, ╰ at the bottom
+const stackGlyph = (place: StackPlace | undefined) => {
+  if (!place) {
+    return "  ";
+  }
+  if (place.index === place.stack.members.length - 1) {
+    return "╭ ";
+  }
+  return place.index === 0 ? "╰ " : "├ ";
+};
+
 const PRRow = ({
   pr,
+  stack,
   selected,
   focused,
   compact,
@@ -435,6 +496,7 @@ const PRRow = ({
   onSelect,
 }: {
   pr: PR;
+  stack: StackPlace | undefined;
   selected: boolean;
   focused: boolean;
   compact: boolean;
@@ -452,6 +514,7 @@ const PRRow = ({
     >
       <text wrapMode="none" truncate>
         <span fg={focused ? C.accent : C.faint}>{selected ? "▌ " : "  "}</span>
+        <span fg={C.blue}>{stackGlyph(stack)}</span>
         <span fg={C.dim}>{`#${pr.number}`.padEnd(7)}</span>
         <span fg={pr.isDraft ? C.dim : C.text} attributes={lit ? BOLD : 0}>
           {`${pad(pr.title, titleW)}  `}
@@ -475,6 +538,7 @@ const PRRow = ({
 
 const PRTable = ({
   list,
+  places,
   cursor,
   focused,
   width,
@@ -482,6 +546,7 @@ const PRTable = ({
   onSelect,
 }: {
   list: PR[];
+  places: Map<number, StackPlace>;
   cursor: number;
   focused: boolean;
   width: number;
@@ -489,9 +554,10 @@ const PRTable = ({
   onSelect: (i: number) => void;
 }) => {
   const compact = width < COMPACT_W;
+  // marker and stack gutter, number, title gap, then the other columns
   const fixed = compact
-    ? 2 + 7 + 2 + 3 + 9 + 1
-    : 2 + 7 + 2 + AUTHOR_W + 5 + 3 + 9 + 15 + 1;
+    ? 4 + 7 + 2 + 3 + 9 + 1
+    : 4 + 7 + 2 + AUTHOR_W + 5 + 3 + 9 + 15 + 1;
   const titleW = Math.max(12, width - fixed);
   // keep the cursor roughly centered once the list is taller than the screen
   const start = Math.max(
@@ -499,8 +565,8 @@ const PRTable = ({
     Math.min(cursor - Math.floor(height / 2), list.length - height)
   );
   const columns = compact
-    ? `  ${"#".padEnd(7)}${pad("Title", titleW)}  CI ${"Review".padEnd(9)}`
-    : `  ${"#".padEnd(7)}${pad("Title", titleW)}  ${pad("Author", AUTHOR_W)} Age CI ${"Review".padEnd(9)}${"Diff".padStart(15)}`;
+    ? `    ${"#".padEnd(7)}${pad("Title", titleW)}  CI ${"Review".padEnd(9)}`
+    : `    ${"#".padEnd(7)}${pad("Title", titleW)}  ${pad("Author", AUTHOR_W)} Age CI ${"Review".padEnd(9)}${"Diff".padStart(15)}`;
   return (
     <box width={width} flexDirection="column">
       <text fg={C.faint} wrapMode="none" truncate>
@@ -510,6 +576,7 @@ const PRTable = ({
         <PRRow
           key={p.number}
           pr={p}
+          stack={places.get(p.number)}
           selected={start + i === cursor}
           focused={focused}
           compact={compact}
@@ -591,6 +658,7 @@ const graphCells = (width: number, graphPane: boolean, size: number) =>
 const PRPane = ({
   prs,
   list,
+  places,
   pr,
   cursor,
   focused,
@@ -607,6 +675,7 @@ const PRPane = ({
 }: {
   prs: PR[] | null;
   list: PR[];
+  places: Map<number, StackPlace>;
   pr: PR | undefined;
   cursor: number;
   focused: boolean;
@@ -645,6 +714,7 @@ const PRPane = ({
     <box flexGrow={1} flexDirection="row">
       <PRTable
         list={list}
+        places={places}
         cursor={cursor}
         focused={focused}
         width={width - sideW - (sidebar ? 1 : 0)}
@@ -655,7 +725,14 @@ const PRPane = ({
         <Divider active={resizing === "sidebar"} onGrab={onGrabDivider} />
       ) : null}
       {sidebar ? (
-        <Sidebar pr={pr} width={sideW} behind={behind} actions={actions} />
+        <Sidebar
+          pr={pr}
+          width={sideW}
+          behind={behind}
+          stack={places.get(pr.number)}
+          mergeCount={mergePlan(pr, places).length}
+          actions={actions}
+        />
       ) : null}
     </box>
   );
@@ -795,15 +872,25 @@ export const App = ({
   const [scroll, setScroll] = useState(0);
   const [toast, setToast] = useState<Toast | null>(null);
   const [busy, setBusy] = useState(true);
+  // bumped each time a merge or close lands (or fails), to reload the list
+  const [settled, setSettled] = useState(0);
 
   const flash = (text: string, color = C.text) => setToast({ color, text });
-  const pending = usePendingAction({ delay, flash, method, repo, setPrs });
+  const pending = usePendingAction({
+    delay,
+    flash,
+    method,
+    // after a merge GitHub may have re-pointed PRs, so reload what it says now
+    onSettled: () => setSettled((n) => n + 1),
+    repo,
+    setPrs,
+  });
 
   const fetchPRs = async () => {
     try {
       const fetched = await listPRs(repo);
-      const skip = pending.pendingNumber();
-      setPrs(fetched.filter((p) => p.number !== skip));
+      const skip = new Set(pending.pendingNumbers());
+      setPrs(fetched.filter((p) => !skip.has(p.number)));
     } catch (error) {
       flash(`✗ ${errorMessage(error)}`, C.red);
       setPrs((p) => p ?? []);
@@ -830,6 +917,17 @@ export const App = ({
     load();
   }, []);
 
+  const reloadAfterAction = useEffectEvent(fetchPRs);
+  useEffect(() => {
+    if (settled === 0) {
+      return;
+    }
+    const load = async () => {
+      await reloadAfterAction();
+    };
+    load();
+  }, [settled]);
+
   const inGraph = graphPane && focus === "graph";
   const graph = useGraph(repo, local, graphPane);
   const cell = useCellPixels(graphPane && !textGraph);
@@ -841,7 +939,9 @@ export const App = ({
     mine: all.filter((p) => p.author === me),
     review: all.filter((p) => p.reviewRequests.includes(me)),
   };
-  const list = tabs[tab];
+  // stacks come from every open PR, so a stack still shows whole in a filtered tab's sidebar
+  const places = findStacks(all);
+  const list = groupStacks(tabs[tab], places);
   const pr = list[Math.min(cursor, list.length - 1)];
   const commit = inGraph
     ? commits[Math.min(graphCursor, commits.length - 1)]?.commit
@@ -852,9 +952,15 @@ export const App = ({
     view === "diff" ? diffTarget(repo, pr, commit, graph.source) : null
   );
 
+  // merging a stacked PR takes everything below it with it, like `gh stack merge`
   const queue = (kind: PendingKind, target: PR) => {
-    pending.queue(kind, target, all);
-    setCursor((c) => Math.max(0, Math.min(c, list.length - 2)));
+    const plan = kind === "merge" ? mergePlan(target, places) : [target];
+    const native =
+      kind === "merge"
+        ? (places.get(target.number)?.stack.native ?? null)
+        : null;
+    pending.queue(kind, plan, all, native);
+    setCursor((c) => Math.max(0, Math.min(c, list.length - plan.length - 1)));
     setView("list");
   };
 
@@ -1018,6 +1124,7 @@ export const App = ({
     <PRPane
       prs={prs}
       list={list}
+      places={places}
       pr={pr}
       cursor={cursor}
       focused={!inGraph}
