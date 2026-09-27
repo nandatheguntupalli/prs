@@ -81,6 +81,8 @@ export interface FileItem {
   status: string;
   additions: number;
   deletions: number;
+  // missing for binary files and very large diffs
+  patch: string | null;
 }
 
 export const listFiles = async (pr: PR): Promise<FileItem[]> => {
@@ -93,6 +95,7 @@ export const listFiles = async (pr: PR): Promise<FileItem[]> => {
   return files.map((f) => ({
     additions: f.additions,
     deletions: f.deletions,
+    patch: f.patch ?? null,
     path: f.filename,
     status: f.status,
   }));

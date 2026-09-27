@@ -1,7 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
 import type { Thread } from "../github/comments.ts";
-import { anchorOf, parseDiff, withThreads } from "./diff-model.ts";
+import {
+  anchorOf,
+  isTestPath,
+  parseDiff,
+  withoutTests,
+  withThreads,
+} from "./diff-model.ts";
 
 const DIFF = `diff --git a/src/a.ts b/src/a.ts
 index 111..222 100644
@@ -96,5 +102,43 @@ describe("withThreads", () => {
     );
     const next = out[header + 1];
     expect(next?.kind === "comment" && next.outdated).toBe(true);
+  });
+});
+
+describe("tests", () => {
+  test("spots test files across layouts", () => {
+    for (const path of [
+      "src/a.test.ts",
+      "src/a.spec.tsx",
+      "pkg/a_test.go",
+      "tests/test_a.py",
+      "app/__tests__/a.js",
+      "test/helper.rb",
+      "src/__snapshots__/a.snap",
+    ]) {
+      expect(isTestPath(path)).toBe(true);
+    }
+    for (const path of [
+      "src/a.ts",
+      "src/testing.ts",
+      "README.md",
+      "latest.ts",
+    ]) {
+      expect(isTestPath(path)).toBe(false);
+    }
+  });
+
+  test("withoutTests drops test files and their lines", () => {
+    const diff = parseDiff(`${DIFF}
+diff --git a/src/a.test.ts b/src/a.test.ts
+@@ -1 +1 @@
+-expect(1)
++expect(2)`);
+    const { files, rows } = withoutTests(diff);
+    expect(files.map((f) => f.path)).toEqual(["src/a.ts", "README.md"]);
+    expect(rows.some((r) => "path" in r && r.path === "src/a.test.ts")).toBe(
+      false
+    );
+    expect(rows.at(-1)).toMatchObject({ kind: "line", text: "hello" });
   });
 });

@@ -33,6 +33,7 @@ export interface CommandContext {
   openDiff: () => unknown;
   toggleSidebar: () => unknown;
   nextDetailTab: (dir: 1 | -1) => unknown;
+  expandFiles: () => unknown;
   resize: (pane: keyof PaneSizes, fraction: number) => unknown;
   resetSizes: () => unknown;
   back: () => unknown;
@@ -44,6 +45,7 @@ export interface CommandContext {
   nextThread: (dir: 1 | -1) => unknown;
   comment: () => unknown;
   toggleRange: () => unknown;
+  toggleTests: () => unknown;
   movePR: (n: number) => unknown;
   moveChecks: (n: number) => unknown;
   openCheck: () => unknown;
@@ -289,6 +291,14 @@ export const buildCommands = (x: CommandContext): Cmd[] => {
       section: nav,
     },
     {
+      id: "expand-files",
+      keys: ["E"],
+      label: "Expand or collapse files",
+      run: x.expandFiles,
+      screens: L,
+      section: nav,
+    },
+    {
       id: "side-smaller",
       keys: ["{"],
       label: "Narrower details",
@@ -428,6 +438,14 @@ export const buildCommands = (x: CommandContext): Cmd[] => {
       keys: ["v"],
       label: "Select lines",
       run: x.toggleRange,
+      screens: D,
+      section: "Diff",
+    },
+    {
+      id: "tests",
+      keys: ["T"],
+      label: "Show or hide tests",
+      run: x.toggleTests,
       screens: D,
       section: "Diff",
     },

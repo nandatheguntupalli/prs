@@ -19,7 +19,8 @@
 prs lists the open pull requests in a repo, or every PR you're involved in across GitHub, and lets you work through them from the keyboard.
 
 - Merge, close, approve or update a branch with a single key. Merges wait a few seconds first, so there's time to undo.
-- Read the diff with review comments inline, and leave comments on a line or a range of lines.
+- Read the diff with review comments inline, and leave comments on a line or a range of lines. Test files are hidden until you press `T`, so you see the code first.
+- Expand any file in the Files Changed tab to see its changes without leaving the list.
 - Check CI without opening a browser. You can open an Actions job and jump straight to the lines that errored.
 - Stacked PRs show up together, and merging one merges everything under it. GitHub's native stacks work too.
 - Add your own tabs from any GitHub search, pick a theme (or let it follow your terminal's light and dark mode), and open a PR's clone in your editor.
@@ -85,6 +86,7 @@ Merges and closes wait a few seconds before they go through, and `z` cancels the
 | `/`               | filter         |
 | `⏎` `d`           | open diff      |
 | `[` `]`           | details tabs   |
+| `E`               | expand files   |
 | `p`               | toggle details |
 | `{` `}` `=`       | resize details |
 | `t`               | theme          |
@@ -96,6 +98,7 @@ Merges and closes wait a few seconds before they go through, and `z` cancels the
 | ------- | ------------------- |
 | `]` `[` | next / prev file    |
 | `f`     | jump to file        |
+| `T`     | show / hide tests   |
 | `n` `p` | next / prev comment |
 | `⏎`     | comment or reply    |
 | `v`     | select lines        |

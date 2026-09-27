@@ -199,3 +199,24 @@ export const withThreads = (
       : [row];
   });
 };
+
+// test files, specs, snapshots and fixtures, across the common layouts
+const TEST_PATH =
+  /(?:^|\/)(?:__tests__|__snapshots__|__mocks__|tests?|specs?|e2e|fixtures|testdata)\/|(?:^|\/)test_[^/]+\.py$|[._-](?:test|spec)s?\.[^/]+$|_test\.go$|\.snap$/u;
+
+export const isTestPath = (path: string) => TEST_PATH.test(path);
+
+// Code first, the way Linear does it: tests are hidden until you ask for them.
+export const withoutTests = (diff: ParsedDiff): ParsedDiff => {
+  const rows: Row[] = [];
+  let keep = true;
+  for (const row of diff.rows) {
+    if (row.kind === "file") {
+      keep = !isTestPath(row.path);
+    }
+    if (keep) {
+      rows.push(row);
+    }
+  }
+  return { files: diff.files.filter((f) => !isTestPath(f.path)), rows };
+};
