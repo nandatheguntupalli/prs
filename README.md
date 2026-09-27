@@ -2,7 +2,7 @@
 
 # prs
 
-**A keyboard-first terminal UI for reviewing and merging pull requests.** One key to merge, one key to undo.
+**A keyboard-first terminal UI for reviewing and merging pull requests.**
 
 [![CI](https://github.com/nandatheguntupalli/prs/actions/workflows/ci.yml/badge.svg)](https://github.com/nandatheguntupalli/prs/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/nandatheguntupalli/prs?color=2dd4bf)](https://github.com/nandatheguntupalli/prs/releases/latest) [![Homebrew](https://img.shields.io/badge/homebrew-nandatheguntupalli%2Ftap-2dd4bf?logo=homebrew&logoColor=white)](https://github.com/nandatheguntupalli/homebrew-tap) [![License: MIT](https://img.shields.io/badge/license-MIT-2dd4bf)](LICENSE) [![Built with Bun](https://img.shields.io/badge/built%20with-Bun-000?logo=bun)](https://bun.sh)
 
