@@ -23,21 +23,29 @@ prs --dry-run         # nothing is merged or approved
 | key | list | diff |
 | --- | --- | --- |
 | `j` / `k` | move | scroll |
-| `⏎` / `d` | open diff |  |
+| `⏎` / `d` | open diff | |
 | `m` | **merge** (and delete branch) | merge |
-| `z` | undo the pending merge | undo |
+| `x` | close | close |
+| `z` | undo a pending merge or close | undo |
+| `u` | update branch (merge the base branch in) | page up |
 | `a` | approve | approve |
 | `o` | open in browser | open in browser |
-| `tab` / `1` `2` `3` | switch between All, Mine, Review requested |  |
-| `p` | toggle the sidebar |  |
-| `space` / `b` |  | page down / up |
-| `J` / `K` |  | next / prev PR |
+| `tab` / `1`–`4` | switch between All, Mine, Review requested, Graph | |
+| `p` | toggle the sidebar | |
+| `space` / `b` | | page down / up |
+| `J` / `K` | | next / prev |
 | `r` | refresh | refresh |
 | `q` / `esc` | quit | back |
 
-The mouse works too: click a row to select it, click a tab, or click **Merge** in the sidebar.
+The mouse works too: click a row, a tab, or the **Merge**, **Update**, and **Close** buttons in the sidebar. The sidebar shows how far a PR's branch is behind its base, and **Update** appears when it is.
 
-Merges wait a few seconds before running, like Superhuman's undo send. Hit `z` to take it back. Quitting while a merge is pending runs it right away.
+## Graph
+
+Tab `4` shows the commit graph, drawn like VS Code's: one row per commit, colored lanes, and branch pills. Press `⏎` on a commit to see it.
+
+Run `prs` inside a clone and the graph reads that clone's history. Anywhere else, `prs` keeps a small bare clone (no file contents until you open a commit) in `~/.cache/prs`. Either way it fetches in the background when the graph opens.
+
+Merges and closes wait a few seconds before running, like Superhuman's undo send. Hit `z` to take one back. Quitting while one is pending runs it right away.
 
 ## Development
 

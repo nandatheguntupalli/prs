@@ -1,7 +1,7 @@
 import { TextAttributes } from "@opentui/core";
 import type { KeyEvent } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 import type { ReactNode } from "react";
 
 import {
@@ -9,44 +9,34 @@ import {
   errorMessage,
   getDiff,
   listPRs,
-  merge,
   openInBrowser,
+  updateBranch,
   viewer,
 } from "./gh.ts";
 import type { MergeMethod, PR } from "./gh.ts";
-
-const C = {
-  accent: "#a78bfa",
-  bg: "#000000",
-  blue: "#60a5fa",
-  border: "#262626",
-  cyan: "#67e8f9",
-  dim: "#737373",
-  faint: "#3f3f46",
-  green: "#4ade80",
-  red: "#f87171",
-  selected: "#18181f",
-  text: "#e5e5e5",
-  yellow: "#fbbf24",
-};
+import { showCommit } from "./git.ts";
+import type { Source } from "./git.ts";
+import { GraphView, useGraph } from "./graph-view.tsx";
+import type { GraphState } from "./graph-view.tsx";
+import type { Commit } from "./graph.ts";
+import { useBehind, useDiff, usePendingAction } from "./hooks.ts";
+import type { DiffTarget, PendingKind } from "./hooks.ts";
+import { C } from "./theme.ts";
 
 const { BOLD } = TextAttributes;
 
-type Tab = "all" | "mine" | "review";
+type PRTab = "all" | "mine" | "review";
+type Tab = PRTab | "graph";
 const TABS: { id: Tab; label: string }[] = [
   { id: "all", label: "All" },
   { id: "mine", label: "Mine" },
   { id: "review", label: "Review requested" },
+  { id: "graph", label: "Graph" },
 ];
 
 interface Toast {
   text: string;
   color: string;
-}
-interface Pending {
-  pr: PR;
-  index: number;
-  timer: ReturnType<typeof setTimeout>;
 }
 interface Status {
   color: string;
@@ -198,18 +188,41 @@ const Button = ({
   </box>
 );
 
+const BehindLine = ({ pr, behind }: { pr: PR; behind: number | undefined }) => {
+  if (behind === undefined) {
+    return <text fg={C.faint}>… Checking {pr.baseRefName}</text>;
+  }
+  if (behind < 0) {
+    return null;
+  }
+  if (behind === 0) {
+    return <text fg={C.dim}>✓ Up to date with {pr.baseRefName}</text>;
+  }
+  return (
+    <text fg={C.yellow}>
+      ↓ {behind} {behind === 1 ? "commit" : "commits"} behind {pr.baseRefName}
+    </text>
+  );
+};
+
+interface PRActions {
+  handleMerge: Action;
+  handleApprove: Action;
+  handleUpdate: Action;
+  handleClose: Action;
+  handleOpen: Action;
+}
+
 const Sidebar = ({
   pr,
   width,
-  onMerge,
-  onApprove,
-  onOpen,
+  behind,
+  actions,
 }: {
   pr: PR;
   width: number;
-  onMerge: Action;
-  onApprove: Action;
-  onOpen: Action;
+  behind: number | undefined;
+  actions: PRActions;
 }) => {
   const ci = CHECKS[pr.checks];
   const rv = review(pr);
@@ -243,20 +256,33 @@ const Sidebar = ({
           <text fg={rv.color}>
             {rv.color === C.green ? "✓" : "○"} {rv.label}
           </text>
+          <BehindLine pr={pr} behind={behind} />
           <text fg={C.dim}>
             <span fg={C.green}>+{pr.additions}</span>{" "}
             <span fg={C.red}>−{pr.deletions}</span> · {pr.changedFiles} files
           </text>
         </box>
 
-        <box flexDirection="row" gap={1} marginTop={1}>
-          <Button label="Merge" color={C.green} onPress={onMerge} />
-          <Button label="Approve" color={C.blue} onPress={onApprove} />
-          <Button label="Open" color={C.dim} onPress={onOpen} />
+        <box flexDirection="row" flexWrap="wrap" gap={1} marginTop={1}>
+          <Button label="Merge" color={C.green} onPress={actions.handleMerge} />
+          <Button
+            label="Approve"
+            color={C.blue}
+            onPress={actions.handleApprove}
+          />
+          {behind && behind > 0 ? (
+            <Button
+              label="Update"
+              color={C.yellow}
+              onPress={actions.handleUpdate}
+            />
+          ) : null}
+          <Button label="Close" color={C.red} onPress={actions.handleClose} />
+          <Button label="Open" color={C.dim} onPress={actions.handleOpen} />
         </box>
 
         <text fg={C.border} marginTop={1}>
-          {"─".repeat(Math.max(0, width - 3))}
+          {"─".repeat(Math.max(0, width - 4))}
         </text>
       </box>
       <text fg={C.dim} wrapMode="word" flexShrink={1}>
@@ -304,7 +330,7 @@ const TabBar = ({
   onSelect,
 }: {
   tab: Tab;
-  counts: Record<Tab, number> | null;
+  counts: Partial<Record<Tab, number>>;
   onSelect: (t: Tab) => void;
 }) => (
   <box flexDirection="row" height={1} paddingLeft={1} gap={3}>
@@ -314,7 +340,7 @@ const TabBar = ({
         <box key={t.id} onMouseDown={() => onSelect(t.id)}>
           <text fg={active ? C.accent : C.dim} attributes={active ? BOLD : 0}>
             {i + 1} {t.label}{" "}
-            <span fg={active ? C.text : C.faint}>{counts?.[t.id] ?? ""}</span>
+            <span fg={active ? C.text : C.faint}>{counts[t.id] ?? ""}</span>
           </text>
         </box>
       );
@@ -323,8 +349,10 @@ const TabBar = ({
 );
 
 const HINTS = {
-  diff: "j/k scroll · space/b page · J/K next/prev · m merge · a approve · o open · esc back",
-  list: "j/k move · ⏎ diff · m merge · a approve · o open · z undo · tab switch · p sidebar · r refresh · q quit",
+  diff: "j/k scroll · space/b page · J/K next/prev · m merge · a approve · x close · o open · esc back",
+  graph:
+    "j/k move · ⏎ show commit · o open on GitHub · r fetch · tab switch · q quit",
+  list: "j/k move · ⏎ diff · m merge · a approve · u update · x close · o open · z undo · tab switch · p sidebar · r refresh · q quit",
 };
 
 const Footer = ({
@@ -355,30 +383,34 @@ const Centered = ({ children }: { children: ReactNode }) => (
   </box>
 );
 
+const PRTitle = ({ pr }: { pr: PR }) => (
+  <text wrapMode="none" truncate>
+    <span fg={C.accent}>#{pr.number} </span>
+    <span fg={C.text} attributes={BOLD}>
+      {pr.title}
+    </span>
+    <span fg={C.dim}> </span>
+    <span fg={C.green}>+{pr.additions} </span>
+    <span fg={C.red}>−{pr.deletions}</span>
+    <span fg={C.dim}> · {pr.changedFiles} files</span>
+  </text>
+);
+
 const DiffView = ({
-  pr,
+  title,
   lines,
   scroll,
   height,
   width,
 }: {
-  pr: PR;
+  title: ReactNode;
   lines: string[] | null;
   scroll: number;
   height: number;
   width: number;
 }) => (
   <box flexGrow={1} flexDirection="column" paddingLeft={1} paddingRight={1}>
-    <text wrapMode="none" truncate>
-      <span fg={C.accent}>#{pr.number} </span>
-      <span fg={C.text} attributes={BOLD}>
-        {pr.title}
-      </span>
-      <span fg={C.dim}> </span>
-      <span fg={C.green}>+{pr.additions} </span>
-      <span fg={C.red}>−{pr.deletions}</span>
-      <span fg={C.dim}> · {pr.changedFiles} files</span>
-    </text>
+    {title}
     <text fg={C.border}>{"─".repeat(Math.max(0, width - 2))}</text>
     {(lines ?? ["Loading diff…"])
       .slice(scroll, scroll + height)
@@ -469,14 +501,157 @@ const PRTable = ({
   );
 };
 
+const CommitTitle = ({ commit }: { commit: Commit }) => (
+  <text wrapMode="none" truncate>
+    <span fg={C.accent}>{commit.short} </span>
+    <span fg={C.text} attributes={BOLD}>
+      {commit.subject}
+    </span>
+    <span fg={C.dim}> {commit.author}</span>
+  </text>
+);
+
+// what the diff view should load: a PR's diff, or a commit from the graph
+const diffTarget = (
+  repo: string,
+  pr: PR | undefined,
+  commit: Commit | undefined,
+  source: Source | null
+): DiffTarget | null => {
+  if (commit && source) {
+    return {
+      key: `commit:${commit.hash}`,
+      load: () => showCommit(source, commit.hash),
+    };
+  }
+  if (pr) {
+    return { key: `pr:${pr.number}`, load: () => getDiff(repo, pr.number) };
+  }
+  return null;
+};
+
+const hintMode = (view: "list" | "diff", inGraph: boolean) => {
+  if (view === "diff") {
+    return "diff";
+  }
+  return inGraph ? "graph" : "list";
+};
+
+const diffTitle = (pr: PR | undefined, commit: Commit | undefined) => {
+  if (commit) {
+    return <CommitTitle commit={commit} />;
+  }
+  return pr ? <PRTitle pr={pr} /> : null;
+};
+
+// whichever of the diff, the graph, or the PR table (with its sidebar) is showing
+const MainView = ({
+  view,
+  inGraph,
+  prs,
+  list,
+  pr,
+  commit,
+  graph,
+  cursor,
+  onSelect,
+  diffLines,
+  scroll,
+  sidebar,
+  behind,
+  actions,
+  emptyLabel,
+  width,
+  height,
+}: {
+  view: "list" | "diff";
+  inGraph: boolean;
+  prs: PR[] | null;
+  list: PR[];
+  pr: PR | undefined;
+  commit: Commit | undefined;
+  graph: GraphState;
+  cursor: number;
+  onSelect: (i: number) => void;
+  diffLines: string[] | null;
+  scroll: number;
+  sidebar: boolean;
+  behind: number | undefined;
+  actions: PRActions;
+  emptyLabel: string;
+  width: number;
+  height: number;
+}) => {
+  // header, tabs, gap, table header, toast, footer
+  const bodyH = height - 6;
+  const title = diffTitle(pr, commit);
+  if (view === "diff" && title) {
+    return (
+      <DiffView
+        title={title}
+        lines={diffLines}
+        scroll={scroll}
+        height={bodyH - 1}
+        width={width}
+      />
+    );
+  }
+  if (inGraph) {
+    return (
+      <GraphView
+        rows={graph.rows}
+        status={graph.status}
+        cursor={cursor}
+        width={width}
+        height={bodyH + 1}
+        onSelect={onSelect}
+      />
+    );
+  }
+  if (!prs) {
+    return (
+      <Centered>
+        <text fg={C.dim}>Loading pull requests…</text>
+      </Centered>
+    );
+  }
+  if (!pr) {
+    return (
+      <Centered>
+        <text fg={C.green} attributes={BOLD}>
+          Inbox zero.
+        </text>
+        <text fg={C.dim}>Nothing in {emptyLabel}.</text>
+      </Centered>
+    );
+  }
+  const sideW = sidebar ? Math.max(36, Math.floor(width * 0.38)) : 0;
+  return (
+    <box flexGrow={1} flexDirection="row">
+      <PRTable
+        list={list}
+        cursor={cursor}
+        width={width - sideW}
+        height={bodyH}
+        onSelect={onSelect}
+      />
+      {sidebar ? (
+        <Sidebar pr={pr} width={sideW} behind={behind} actions={actions} />
+      ) : null}
+    </box>
+  );
+};
+
 export const App = ({
   repo,
+  local,
   method,
   delay,
   dryRun,
   onQuit,
 }: {
   repo: string;
+  local: string | null;
   method: MergeMethod;
   delay: number;
   dryRun: boolean;
@@ -487,23 +662,20 @@ export const App = ({
   const [me, setMe] = useState("");
   const [tab, setTab] = useState<Tab>("all");
   const [cursor, setCursor] = useState(0);
+  const [graphCursor, setGraphCursor] = useState(0);
   const [view, setView] = useState<"list" | "diff">("list");
   const [sidebar, setSidebar] = useState(true);
-  const [diff, setDiff] = useState<{ number: number; lines: string[] } | null>(
-    null
-  );
   const [scroll, setScroll] = useState(0);
   const [toast, setToast] = useState<Toast | null>(null);
   const [busy, setBusy] = useState(true);
-  // only read from handlers, so it doesn't need to be state
-  const pending = useRef<Pending | null>(null);
 
   const flash = (text: string, color = C.text) => setToast({ color, text });
+  const pending = usePendingAction({ delay, flash, method, repo, setPrs });
 
   const fetchPRs = async () => {
     try {
       const fetched = await listPRs(repo);
-      const skip = pending.current?.pr.number;
+      const skip = pending.pendingNumber();
       setPrs(fetched.filter((p) => p.number !== skip));
     } catch (error) {
       flash(`✗ ${errorMessage(error)}`, C.red);
@@ -520,7 +692,10 @@ export const App = ({
   // repo is fixed for the life of the app, so these only run once
   const loadPRs = useEffectEvent(fetchPRs);
   useEffect(() => {
-    loadPRs();
+    const load = async () => {
+      await loadPRs();
+    };
+    load();
   }, []);
 
   useEffect(() => {
@@ -528,102 +703,31 @@ export const App = ({
     load();
   }, []);
 
+  const inGraph = tab === "graph";
+  const graph = useGraph(repo, local, inGraph);
+  const commits = graph.rows ?? [];
+
   const all = prs ?? [];
-  const tabs: Record<Tab, PR[]> = {
+  const tabs: Record<PRTab, PR[]> = {
     all,
     mine: all.filter((p) => p.author === me),
     review: all.filter((p) => p.reviewRequests.includes(me)),
   };
-  const list = tabs[tab];
+  const list = inGraph ? [] : tabs[tab];
   const pr = list[Math.min(cursor, list.length - 1)];
-  const prNumber = pr?.number;
+  const commit = inGraph
+    ? commits[Math.min(graphCursor, commits.length - 1)]?.commit
+    : undefined;
 
-  // load the diff whenever the diff view points at a new PR
-  useEffect(() => {
-    if (view !== "diff" || prNumber === undefined) {
-      return;
-    }
-    let live = true;
-    const load = async () => {
-      let lines: string[];
-      try {
-        const text = await getDiff(repo, prNumber);
-        lines = text.replaceAll("\t", "  ").split("\n");
-      } catch (error) {
-        lines = [`✗ ${errorMessage(error)}`];
-      }
-      if (live) {
-        setDiff({ lines, number: prNumber });
-      }
-    };
-    load();
-    return () => {
-      live = false;
-    };
-  }, [view, prNumber, repo]);
+  const { behind, markUpToDate } = useBehind(repo, pr);
+  const diffLines = useDiff(
+    view === "diff" ? diffTarget(repo, pr, commit, graph.source) : null
+  );
 
-  // a diff for a different PR is stale; show loading until the new one lands
-  const diffLines = diff && diff.number === prNumber ? diff.lines : null;
-
-  const reinsert = (p: Pending) =>
-    setPrs((cur) => {
-      const next = [...(cur ?? [])];
-      next.splice(Math.min(p.index, next.length), 0, p.pr);
-      return next;
-    });
-
-  const doMerge = async (p: Pending) => {
-    pending.current = null;
-    flash(`Merging #${p.pr.number}…`, C.yellow);
-    try {
-      await merge(repo, p.pr.number, method);
-      flash(`✓ Merged #${p.pr.number} ${p.pr.title}`, C.green);
-    } catch (error) {
-      reinsert(p);
-      flash(`✗ #${p.pr.number}: ${errorMessage(error)}`, C.red);
-    }
-  };
-
-  const queueMerge = (target: PR) => {
-    // a second merge flushes the first immediately
-    if (pending.current) {
-      clearTimeout(pending.current.timer);
-      doMerge(pending.current);
-    }
-    const p: Pending = {
-      index: all.indexOf(target),
-      pr: target,
-      timer: setTimeout(() => doMerge(p), delay * 1000),
-    };
-    pending.current = p;
-    setPrs(all.filter((x) => x !== target));
+  const queue = (kind: PendingKind, target: PR) => {
+    pending.queue(kind, target, all);
     setCursor((c) => Math.max(0, Math.min(c, list.length - 2)));
     setView("list");
-    flash(
-      `Merging #${target.number} in ${delay}s (${method}) · z to undo`,
-      C.yellow
-    );
-  };
-
-  const undo = () => {
-    const p = pending.current;
-    if (!p) {
-      flash("Nothing to undo", C.dim);
-      return;
-    }
-    clearTimeout(p.timer);
-    pending.current = null;
-    reinsert(p);
-    flash(`↶ Undid merge of #${p.pr.number}`, C.cyan);
-  };
-
-  const quit = async () => {
-    const p = pending.current;
-    if (p) {
-      clearTimeout(p.timer);
-      await doMerge(p);
-    }
-    onQuit();
   };
 
   const doApprove = async (target: PR) => {
@@ -637,9 +741,27 @@ export const App = ({
     }
   };
 
+  const doUpdate = async (target: PR) => {
+    flash(`Updating #${target.number} with ${target.baseRefName}…`, C.yellow);
+    try {
+      await updateBranch(repo, target.number);
+      markUpToDate(target);
+      flash(`✓ Updated #${target.number} with ${target.baseRefName}`, C.green);
+      refresh();
+    } catch (error) {
+      flash(`✗ #${target.number}: ${errorMessage(error)}`, C.red);
+    }
+  };
+
+  const quit = async () => {
+    await pending.flush();
+    onQuit();
+  };
+
   const selectTab = (t: Tab) => {
     setTab(t);
     setCursor(0);
+    setView("list");
   };
 
   const cycleTab = (dir: 1 | -1) => {
@@ -650,8 +772,10 @@ export const App = ({
     }
   };
 
+  const count = inGraph ? commits.length : list.length;
+  const setActiveCursor = inGraph ? setGraphCursor : setCursor;
   const moveCursor = (dir: 1 | -1) =>
-    setCursor((c) => Math.max(0, Math.min(c + dir, list.length - 1)));
+    setActiveCursor((c) => Math.max(0, Math.min(c + dir, count - 1)));
 
   const openDiff = () => {
     setScroll(0);
@@ -663,39 +787,52 @@ export const App = ({
     moveCursor(dir);
   };
 
-  // header, tabs, gap, table header, toast, footer
-  const bodyH = height - 6;
+  // header, tabs, gap, title, rule, toast, footer
   const diffH = height - 7;
   const maxScroll = Math.max(0, (diffLines?.length ?? 0) - diffH);
   const scrollBy = (n: number) =>
     setScroll((s) => Math.max(0, Math.min(s + n, maxScroll)));
 
-  const onMerge = () => pr && queueMerge(pr);
-  const onApprove = () => pr && doApprove(pr);
-  const onOpen = () => pr && openInBrowser(pr.url);
+  const prActions: PRActions = {
+    handleApprove: () => pr && doApprove(pr),
+    handleClose: () => pr && queue("close", pr),
+    handleMerge: () => pr && queue("merge", pr),
+    handleOpen: () => pr && openInBrowser(pr.url),
+    handleUpdate: () => pr && doUpdate(pr),
+  };
+
+  const openCommit = () =>
+    commit && openInBrowser(`https://github.com/${repo}/commit/${commit.hash}`);
+
+  const refreshAll = () => {
+    refresh();
+    graph.reload();
+  };
 
   // built per keypress, from the handler, so the actions only ever run outside render
   const keymap = (id: string) => {
     const globalKeys = new Map([
       ...bind(["ctrl+c"], quit),
-      ...bind(["z"], undo),
-      ...bind(["r"], refresh),
-      ...bind(["m"], onMerge),
-      ...bind(["a"], onApprove),
-      ...bind(["o"], onOpen),
+      ...bind(["z"], pending.undo),
+      ...bind(["r"], refreshAll),
+      ...bind(["m"], prActions.handleMerge),
+      ...bind(["a"], prActions.handleApprove),
+      ...bind(["x"], prActions.handleClose),
+      ...bind(["o"], inGraph ? openCommit : prActions.handleOpen),
     ]);
 
     const listKeys = new Map([
       ...bind(["q"], quit),
       ...bind(["j", "down"], () => moveCursor(1)),
       ...bind(["k", "up"], () => moveCursor(-1)),
-      ...bind(["g"], () => setCursor(0)),
-      ...bind(["G"], () => setCursor(list.length - 1)),
+      ...bind(["g"], () => setActiveCursor(0)),
+      ...bind(["G"], () => setActiveCursor(count - 1)),
       ...bind(["tab"], () => cycleTab(1)),
       ...bind(["shift+tab"], () => cycleTab(-1)),
       ...TABS.flatMap((t, i) => bind([String(i + 1)], () => selectTab(t.id))),
       ...bind(["p"], () => setSidebar((s) => !s)),
-      ...bind(["return", "d"], () => pr && openDiff()),
+      ...bind(["u"], prActions.handleUpdate),
+      ...bind(["return", "d"], () => (pr || commit) && openDiff()),
     ]);
 
     const diffKeys = new Map([
@@ -716,66 +853,36 @@ export const App = ({
 
   useKeyboard((key: KeyEvent) => keymap(keyId(key))?.());
 
-  const sideW = sidebar ? Math.max(36, Math.floor(width * 0.38)) : 0;
-
-  let body: ReactNode;
-  if (!prs) {
-    body = (
-      <Centered>
-        <text fg={C.dim}>Loading pull requests…</text>
-      </Centered>
-    );
-  } else if (view === "diff" && pr) {
-    body = (
-      <DiffView
-        pr={pr}
-        lines={diffLines}
-        scroll={scroll}
-        height={diffH}
-        width={width}
-      />
-    );
-  } else if (pr) {
-    body = (
-      <box flexGrow={1} flexDirection="row">
-        <PRTable
-          list={list}
-          cursor={cursor}
-          width={width - sideW}
-          height={bodyH}
-          onSelect={setCursor}
-        />
-        {sidebar ? (
-          <Sidebar
-            pr={pr}
-            width={sideW}
-            onMerge={onMerge}
-            onApprove={onApprove}
-            onOpen={onOpen}
-          />
-        ) : null}
-      </box>
-    );
-  } else {
-    body = (
-      <Centered>
-        <text fg={C.green} attributes={BOLD}>
-          Inbox zero.
-        </text>
-        <text fg={C.dim}>
-          Nothing in {TABS.find((t) => t.id === tab)?.label}.
-        </text>
-      </Centered>
-    );
-  }
+  const main = (
+    <MainView
+      view={view}
+      inGraph={inGraph}
+      prs={prs}
+      list={list}
+      pr={pr}
+      commit={commit}
+      graph={graph}
+      cursor={inGraph ? graphCursor : cursor}
+      onSelect={setActiveCursor}
+      diffLines={diffLines}
+      scroll={scroll}
+      sidebar={sidebar}
+      behind={behind}
+      actions={prActions}
+      emptyLabel={TABS.find((t) => t.id === tab)?.label ?? ""}
+      width={width}
+      height={height}
+    />
+  );
 
   const counts = prs
     ? {
         all: tabs.all.length,
+        graph: graph.rows?.length,
         mine: tabs.mine.length,
         review: tabs.review.length,
       }
-    : null;
+    : { graph: graph.rows?.length };
 
   return (
     <box
@@ -787,9 +894,9 @@ export const App = ({
       <Header repo={repo} busy={busy} dryRun={dryRun} method={method} />
       <TabBar tab={tab} counts={counts} onSelect={selectTab} />
       <box flexGrow={1} flexDirection="column" marginTop={1}>
-        {body}
+        {main}
       </box>
-      <Footer toast={toast} view={view} />
+      <Footer toast={toast} view={hintMode(view, inGraph)} />
     </box>
   );
 };

@@ -18,6 +18,7 @@ export interface PR {
   body: string;
   checks: Checks;
   reviewRequests: string[];
+  headOwner: string;
 }
 
 // CheckRun has status/conclusion, StatusContext has state
@@ -34,14 +35,15 @@ interface RawReviewer {
   slug?: string;
 }
 
-type RawPR = Omit<PR, "author" | "checks" | "reviewRequests"> & {
+type RawPR = Omit<PR, "author" | "checks" | "reviewRequests" | "headOwner"> & {
   author: { login: string } | null;
+  headRepositoryOwner: { login: string } | null;
   statusCheckRollup: RawCheck[] | null;
   reviewRequests: RawReviewer[] | null;
 };
 
 const FIELDS =
-  "number,title,author,createdAt,headRefName,baseRefName,isDraft,reviewDecision,mergeable,additions,deletions,changedFiles,url,body,statusCheckRollup,reviewRequests";
+  "number,title,author,createdAt,headRefName,baseRefName,isDraft,reviewDecision,mergeable,additions,deletions,changedFiles,url,body,statusCheckRollup,reviewRequests,headRepositoryOwner";
 
 const FAILED = new Set([
   "FAILURE",
@@ -123,10 +125,11 @@ export const listPRs = async (repo: string): Promise<PR[]> => {
     FIELDS,
   ]);
   const raw: RawPR[] = JSON.parse(out);
-  return raw.map(({ statusCheckRollup, ...p }) => ({
+  return raw.map(({ statusCheckRollup, headRepositoryOwner, ...p }) => ({
     ...p,
     author: p.author?.login ?? "ghost",
     checks: summarizeChecks(statusCheckRollup),
+    headOwner: headRepositoryOwner?.login ?? "",
     reviewRequests: (p.reviewRequests ?? [])
       .map((r) => r.login ?? r.slug ?? r.name ?? "")
       .filter(Boolean),
@@ -155,6 +158,29 @@ export const approve = (repo: string, n: number) =>
   dryRun.enabled
     ? Promise.resolve("")
     : gh(["pr", "review", String(n), "-R", repo, "--approve"]);
+
+export const closePR = (repo: string, n: number) =>
+  dryRun.enabled
+    ? Promise.resolve("")
+    : gh(["pr", "close", String(n), "-R", repo]);
+
+// merges the base branch into the PR branch, like GitHub's "Update branch" button
+export const updateBranch = (repo: string, n: number) =>
+  dryRun.enabled
+    ? Promise.resolve("")
+    : gh(["pr", "update-branch", String(n), "-R", repo]);
+
+// how many commits the base branch has that the PR branch doesn't
+export const behindBy = async (repo: string, pr: PR): Promise<number> => {
+  const head = `${pr.headOwner || repo.split("/")[0]}:${pr.headRefName}`;
+  const out = await gh([
+    "api",
+    `repos/${repo}/compare/${pr.baseRefName}...${head}`,
+    "-q",
+    ".behind_by",
+  ]);
+  return Number(out.trim()) || 0;
+};
 
 export const openInBrowser = (url: string) =>
   Bun.spawn([process.platform === "darwin" ? "open" : "xdg-open", url], {

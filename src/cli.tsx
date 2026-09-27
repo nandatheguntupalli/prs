@@ -8,6 +8,7 @@ import pkg from "../package.json";
 import { App } from "./app.tsx";
 import { currentRepo, dryRun } from "./gh.ts";
 import type { MergeMethod } from "./gh.ts";
+import { localCheckout } from "./git.ts";
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -39,17 +40,18 @@ if (!["squash", "merge", "rebase"].includes(method)) {
   process.exit(1);
 }
 
-let [repo] = positionals;
+// the repo this directory is a clone of, if any; the graph reads its history directly
+const here = await currentRepo().catch(() => "");
+
+const repo = positionals[0] ?? here;
 if (!repo) {
-  try {
-    repo = await currentRepo();
-  } catch {
-    console.error("Not in a GitHub repo. Pass one: prs owner/repo");
-    process.exit(1);
-  }
+  console.error("Not in a GitHub repo. Pass one: prs owner/repo");
+  process.exit(1);
 }
 
 dryRun.enabled = !!values["dry-run"];
+
+const local = here === repo ? await localCheckout() : null;
 
 const renderer = await createCliRenderer({
   backgroundColor: "#000000",
@@ -66,6 +68,7 @@ const quit = () => {
 createRoot(renderer).render(
   <App
     repo={repo}
+    local={local}
     method={method}
     delay={Number(values.delay)}
     dryRun={dryRun.enabled}
