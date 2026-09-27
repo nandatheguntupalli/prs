@@ -1,3 +1,8 @@
+import {
+  createClipboard,
+  createHostClipboard,
+  createRendererClipboardAdapter,
+} from "@opentui/core";
 import type { CliRenderer } from "@opentui/core";
 
 import { repoPath } from "./config.ts";
@@ -14,33 +19,22 @@ export const localCheckout = async (): Promise<string | null> => {
   }
 };
 
-const CLIPBOARD_TOOLS = [
-  ["pbcopy"],
-  ["wl-copy"],
-  ["xclip", "-selection", "clipboard"],
-];
-
-// fall back to OSC 52, which also works over SSH
+// the system clipboard, or OSC 52 through the terminal when there isn't one (over SSH, say)
 export const copyText = async (renderer: CliRenderer, text: string) => {
-  for (const cmd of CLIPBOARD_TOOLS) {
-    try {
-      // oxlint-disable-next-line no-await-in-loop -- try each tool until one exists
-      const proc = Bun.spawn(cmd, {
-        stderr: "ignore",
-        stdin: "pipe",
-        stdout: "ignore",
-      });
-      proc.stdin.write(text);
-      proc.stdin.end();
-      // oxlint-disable-next-line no-await-in-loop -- same
-      if ((await proc.exited) === 0) {
-        return true;
-      }
-    } catch {
-      // not installed
-    }
+  const clipboard = createClipboard({
+    host: createHostClipboard(),
+    terminal: createRendererClipboardAdapter(renderer),
+  });
+  try {
+    const result = await clipboard.writeText(text, {
+      destination: "best-available",
+    });
+    return (
+      result.host.status === "written" || result.terminal.status === "attempted"
+    );
+  } finally {
+    await clipboard.dispose();
   }
-  return renderer.copyToClipboardOSC52(text);
 };
 
 const fill = (template: string, values: Record<string, string>) =>

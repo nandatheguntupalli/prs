@@ -3,7 +3,7 @@ import { prKey } from "../stacks.ts";
 import type { StackPlace } from "../stacks.ts";
 import { C } from "../theme.ts";
 import { age, checksStatus, compact, fit } from "./format.ts";
-import { BOLD } from "./primitives.tsx";
+import { BOLD, ScrollList } from "./primitives.tsx";
 import { isOpen, statusLook } from "./status.ts";
 import type { Status } from "./status.ts";
 
@@ -159,35 +159,28 @@ export const PRTable = ({
   width: number;
   height: number;
   onSelect: (i: number) => void;
-}) => {
-  // minus the header and its rule
-  const visible = Math.max(1, Math.floor((height - 2) / BLOCK_H));
-  // keep the cursor near the middle once the list scrolls
-  const start = Math.max(
-    0,
-    Math.min(cursor - Math.floor(visible / 2), list.length - visible)
-  );
-  return (
-    <box width={width} flexDirection="column" overflow="hidden">
-      <Header width={width} />
-      <text fg={C.border} wrapMode="none">
-        {"─".repeat(Math.max(0, width))}
-      </text>
-      {list.slice(start, start + visible).map((p, i) => (
+}) => (
+  <box width={width} flexDirection="column" overflow="hidden">
+    <Header width={width} />
+    <text fg={C.border} wrapMode="none">
+      {"─".repeat(Math.max(0, width))}
+    </text>
+    <ScrollList cursor={cursor} rowHeight={BLOCK_H} height={height - 2}>
+      {list.map((p, i) => (
         <PRBlock
           key={prKey(p)}
           pr={p}
           status={statusOf(p)}
           stack={places.get(prKey(p))}
-          selected={start + i === cursor}
+          selected={i === cursor}
           focused={focused}
           width={width}
-          onSelect={() => onSelect(start + i)}
+          onSelect={() => onSelect(i)}
         />
       ))}
-    </box>
-  );
-};
+    </ScrollList>
+  </box>
+);
 
 export const pageSize = (height: number) =>
   Math.max(1, Math.floor((height - 2) / BLOCK_H) - 1);

@@ -1,6 +1,7 @@
 import { TextAttributes } from "@opentui/core";
+import type { ScrollBoxRenderable } from "@opentui/core";
 import { useTerminalDimensions } from "@opentui/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import { C } from "../theme.ts";
@@ -115,67 +116,59 @@ export const Modal = ({
   );
 };
 
-export interface ListItem {
-  key: string;
-  label: string;
+export interface Choice {
+  name: string;
+  // shown right-aligned, like a key or a count
   hint?: string;
-  color?: string;
-  mark?: string;
-  markColor?: string;
 }
 
-export const PickList = ({
-  items,
-  cursor,
+// OpenTUI's <select>. When a search box above it has focus, the parent drives `index`.
+export const Choices = ({
+  choices,
+  index,
   height,
   width,
-  onPick,
+  focused = false,
+  onChange,
+  onSelect,
 }: {
-  items: ListItem[];
-  cursor: number;
+  choices: Choice[];
+  index?: number;
   height: number;
   width: number;
-  onPick?: (i: number) => void;
+  focused?: boolean;
+  onChange?: (i: number) => void;
+  onSelect?: (i: number) => void;
 }) => {
-  const start = Math.max(
-    0,
-    Math.min(cursor - Math.floor(height / 2), items.length - height)
-  );
-  if (items.length === 0) {
+  if (choices.length === 0) {
     return <text fg={C.faint}>Nothing matches.</text>;
   }
+  // the indicator and padding take 4 columns
+  const room = width - 4;
+  const options = choices.map((c) => {
+    const hint = c.hint ? ` ${c.hint}` : "";
+    const name = fit(c.name, Math.max(4, room - hint.length));
+    return { description: "", name: name + hint.padStart(room - name.length) };
+  });
   return (
-    <box flexDirection="column" height={Math.min(height, items.length)}>
-      {items.slice(start, start + height).map((item, i) => {
-        const on = start + i === cursor;
-        const hintW = item.hint ? item.hint.length + 2 : 0;
-        const markW = item.mark ? 2 : 0;
-        return (
-          <box
-            key={item.key}
-            height={1}
-            flexDirection="row"
-            justifyContent="space-between"
-            backgroundColor={on ? C.selected : C.panel}
-            onMouseDown={() => onPick?.(start + i)}
-          >
-            <text wrapMode="none">
-              <span fg={C.accent}>{on ? "› " : "  "}</span>
-              {item.mark ? (
-                <span fg={item.markColor ?? C.accent}>{`${item.mark} `}</span>
-              ) : null}
-              <span
-                fg={item.color ?? (on ? C.text : C.dim)}
-                attributes={on ? BOLD : 0}
-              >
-                {fit(item.label, Math.max(4, width - 4 - hintW - markW))}
-              </span>
-            </text>
-            {item.hint ? <text fg={C.faint}>{item.hint}</text> : null}
-          </box>
-        );
-      })}
-    </box>
+    // oxlint-disable-next-line jsx-a11y/control-has-associated-label -- a terminal widget, not a DOM control
+    <select
+      options={options}
+      selectedIndex={index}
+      focused={focused}
+      width={width}
+      height={Math.min(height, choices.length)}
+      showDescription={false}
+      showScrollIndicator
+      backgroundColor={C.panel}
+      focusedBackgroundColor={C.panel}
+      textColor={C.dim}
+      focusedTextColor={C.dim}
+      selectedBackgroundColor={C.selected}
+      selectedTextColor={C.text}
+      onChange={(i) => onChange?.(i)}
+      onSelect={(i) => onSelect?.(i)}
+    />
   );
 };
 
@@ -192,4 +185,35 @@ export const fuzzy = (query: string, text: string) => {
     at += 1;
   }
   return true;
+};
+
+// a <scrollbox> of equal-height rows that keeps the cursor's row near the middle
+export const ScrollList = ({
+  cursor,
+  rowHeight = 1,
+  height,
+  children,
+}: {
+  cursor: number;
+  rowHeight?: number;
+  height: number;
+  children: ReactNode;
+}) => {
+  const ref = useRef<ScrollBoxRenderable>(null);
+  useEffect(() => {
+    const above = Math.floor((Math.floor(height / rowHeight) - 1) / 2);
+    ref.current?.scrollTo(Math.max(0, cursor - above) * rowHeight);
+  }, [cursor, rowHeight, height]);
+  return (
+    <scrollbox
+      ref={ref}
+      height={height}
+      scrollY
+      verticalScrollbarOptions={{ visible: false }}
+    >
+      {children}
+      {/* so scrolling to the very end still lands on a row boundary */}
+      <box height={height % rowHeight} />
+    </scrollbox>
+  );
 };

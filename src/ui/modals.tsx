@@ -1,6 +1,6 @@
-import type { KeyEvent } from "@opentui/core";
+import type { KeyEvent, TextareaRenderable } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { errorMessage } from "../github/client.ts";
 import { repoLabels } from "../github/prs.ts";
@@ -9,23 +9,19 @@ import { C, THEME_CHOICES } from "../theme.ts";
 import type { ThemeChoice } from "../theme.ts";
 import { fit, plural } from "./format.ts";
 import { keyId } from "./keys.ts";
-import { BOLD, KeyHint, Modal, PickList, fuzzy } from "./primitives.tsx";
-import type { ListItem } from "./primitives.tsx";
+import { BOLD, Choices, KeyHint, Modal, fuzzy } from "./primitives.tsx";
 
-const useListNav = (count: number) => {
+// for lists under a search box: the box has focus, so arrows are handled here
+const useSearchCursor = (count: number) => {
   const [cursor, setCursor] = useState(0);
   const move = (id: string) => {
-    if (id === "down" || id === "ctrl+n" || id === "tab") {
+    if (id === "down" || id === "ctrl+n") {
       setCursor((c) => Math.min(c + 1, Math.max(0, count - 1)));
-      return true;
-    }
-    if (id === "up" || id === "ctrl+p" || id === "shift+tab") {
+    } else if (id === "up" || id === "ctrl+p") {
       setCursor((c) => Math.max(c - 1, 0));
-      return true;
     }
-    return false;
   };
-  return { cursor: Math.min(cursor, Math.max(0, count - 1)), move, setCursor };
+  return { cursor: Math.min(cursor, Math.max(0, count - 1)), move };
 };
 
 const Search = ({
@@ -69,7 +65,7 @@ export const CommandPalette = ({
 }) => {
   const [query, setQuery] = useState("");
   const shown = commands.filter((c) => fuzzy(query, c.label));
-  const { cursor, move } = useListNav(shown.length);
+  const { cursor, move } = useSearchCursor(shown.length);
   useKeyboard((key: KeyEvent) => {
     const id = keyId(key);
     if (id === "escape") {
@@ -89,9 +85,9 @@ export const CommandPalette = ({
       footer="↑↓ choose · ⏎ run · esc close"
     >
       <Search value={query} placeholder="type a command…" onInput={setQuery} />
-      <PickList
-        items={shown.map((c) => ({ hint: c.keys, key: c.id, label: c.label }))}
-        cursor={cursor}
+      <Choices
+        choices={shown.map((c) => ({ hint: c.keys, name: c.label }))}
+        index={cursor}
         height={14}
         width={60}
       />
@@ -193,7 +189,7 @@ export const LabelsModal = ({
   }, [pr.repo]);
 
   const shown = (labels ?? []).filter((l) => fuzzy(query, l.name));
-  const { cursor, move } = useListNav(shown.length);
+  const { cursor, move } = useSearchCursor(shown.length);
   const changed =
     chosen.size !== pr.labels.length ||
     pr.labels.some((l) => !chosen.has(l.name));
@@ -223,13 +219,6 @@ export const LabelsModal = ({
     }
   });
 
-  const items: ListItem[] = shown.map((l) => ({
-    color: chosen.has(l.name) ? C.text : C.dim,
-    key: l.name,
-    label: l.name,
-    mark: chosen.has(l.name) ? "■" : "□",
-    markColor: `#${l.color}`,
-  }));
   return (
     <Modal
       title={`Labels · #${pr.number}`}
@@ -239,7 +228,14 @@ export const LabelsModal = ({
       <Search value={query} placeholder="filter labels…" onInput={setQuery} />
       {loadError ? <text fg={C.red}>{loadError}</text> : null}
       {labels ? (
-        <PickList items={items} cursor={cursor} height={12} width={52} />
+        <Choices
+          choices={shown.map((l) => ({
+            name: `${chosen.has(l.name) ? "■" : "□"} ${l.name}`,
+          }))}
+          index={cursor}
+          height={12}
+          width={52}
+        />
       ) : (
         <text fg={C.dim}>Loading labels…</text>
       )}
@@ -247,14 +243,41 @@ export const LabelsModal = ({
   );
 };
 
-const REVIEW_CHOICES: {
-  event: ReviewEvent;
-  label: string;
-  color: () => string;
-}[] = [
-  { color: () => C.dim, event: "COMMENT", label: "Comment" },
-  { color: () => C.green, event: "APPROVE", label: "Approve" },
-  { color: () => C.red, event: "REQUEST_CHANGES", label: "Request changes" },
+// OpenTUI's <textarea>: enter posts, shift+enter or alt+enter starts a new line
+const EDITOR_KEYS = [
+  { action: "submit" as const, name: "return" },
+  { action: "newline" as const, name: "return", shift: true },
+  { action: "newline" as const, meta: true, name: "return" },
+];
+
+const Editor = ({
+  placeholder,
+  onSubmit,
+}: {
+  placeholder: string;
+  onSubmit: (body: string) => void;
+}) => {
+  const ref = useRef<TextareaRenderable>(null);
+  return (
+    <textarea
+      ref={ref}
+      focused
+      placeholder={placeholder}
+      height={6}
+      textColor={C.text}
+      placeholderColor={C.faint}
+      backgroundColor={C.bg}
+      focusedBackgroundColor={C.bg}
+      keyBindings={EDITOR_KEYS}
+      onSubmit={() => onSubmit(ref.current?.plainText.trim() ?? "")}
+    />
+  );
+};
+
+const REVIEW_CHOICES: { event: ReviewEvent; label: string }[] = [
+  { event: "COMMENT", label: "Comment" },
+  { event: "APPROVE", label: "Approve" },
+  { event: "REQUEST_CHANGES", label: "Request changes" },
 ];
 
 export const ReviewModal = ({
@@ -266,68 +289,58 @@ export const ReviewModal = ({
   onSubmit: (event: ReviewEvent, body: string) => void;
   onClose: () => void;
 }) => {
-  const [step, setStep] = useState<"choose" | "write">("choose");
-  const [body, setBody] = useState("");
-  const { cursor, move } = useListNav(REVIEW_CHOICES.length);
-  const choice = REVIEW_CHOICES[cursor] ?? REVIEW_CHOICES[0];
+  const [choice, setChoice] = useState<(typeof REVIEW_CHOICES)[number] | null>(
+    null
+  );
 
   useKeyboard((key: KeyEvent) => {
-    const id = keyId(key);
-    if (step === "choose") {
-      if (id === "escape") {
+    if (keyId(key) === "escape") {
+      if (choice) {
+        setChoice(null);
+      } else {
         onClose();
-      } else if (id === "return") {
-        setStep("write");
-      } else if (!move(id) && (id === "j" || id === "k")) {
-        move(id === "j" ? "down" : "up");
       }
-      return;
-    }
-    if (id === "escape") {
-      setStep("choose");
-    } else if (id === "return" && choice) {
-      // GitHub needs a message for comments and change requests
-      if (choice.event !== "APPROVE" && !body.trim()) {
-        return;
-      }
-      onClose();
-      onSubmit(choice.event, body.trim());
     }
   });
+
+  const submit = (body: string) => {
+    // GitHub needs a message for comments and change requests
+    if (!choice || (choice.event !== "APPROVE" && !body)) {
+      return;
+    }
+    onClose();
+    onSubmit(choice.event, body);
+  };
 
   return (
     <Modal
       title={`Review #${pr.number}`}
       width={64}
       footer={
-        step === "choose"
-          ? "↑↓ choose · ⏎ next · esc cancel"
-          : `⏎ submit · esc back${choice?.event === "APPROVE" ? " · message optional" : ""}`
+        choice
+          ? `⏎ submit · esc back${choice.event === "APPROVE" ? " · message optional" : ""}`
+          : "↑↓ choose · ⏎ next · esc cancel"
       }
     >
-      <text fg={C.dim} marginBottom={1} wrapMode="none">
-        {fit(pr.title, 60)}
+      <text fg={C.dim} marginBottom={1} wrapMode="none" truncate>
+        {pr.title}
       </text>
-      {REVIEW_CHOICES.map((c, i) => (
-        <text key={c.event} wrapMode="none">
-          <span fg={C.accent}>{i === cursor ? "› " : "  "}</span>
-          <span
-            fg={i === cursor ? c.color() : C.faint}
-            attributes={i === cursor ? BOLD : 0}
-          >
-            {c.label}
-          </span>
-        </text>
-      ))}
-      {step === "write" ? (
-        <box marginTop={1} flexDirection="column">
-          <Search
-            value={body}
-            placeholder="leave a message…"
-            onInput={setBody}
-          />
-        </box>
-      ) : null}
+      {choice ? (
+        <>
+          <text fg={C.accent} attributes={BOLD} marginBottom={1}>
+            {choice.label}
+          </text>
+          <Editor placeholder="leave a message…" onSubmit={submit} />
+        </>
+      ) : (
+        <Choices
+          choices={REVIEW_CHOICES.map((c) => ({ name: c.label }))}
+          focused
+          height={REVIEW_CHOICES.length}
+          width={60}
+          onSelect={(i) => setChoice(REVIEW_CHOICES[i] ?? null)}
+        />
+      )}
     </Modal>
   );
 };
@@ -343,47 +356,32 @@ export const ThemeModal = ({
   onChoose: (choice: ThemeChoice) => void;
   onClose: () => void;
 }) => {
-  const start = Math.max(
-    0,
-    THEME_CHOICES.findIndex((t) => t.id === current)
-  );
-  const [cursor, setCursor] = useState(start);
-  const pick = (i: number) => {
-    const next = Math.max(0, Math.min(i, THEME_CHOICES.length - 1));
-    setCursor(next);
-    const theme = THEME_CHOICES[next];
-    if (theme) {
-      onPreview(theme.id);
-    }
-  };
   useKeyboard((key: KeyEvent) => {
-    const id = keyId(key);
-    if (id === "escape") {
+    if (keyId(key) === "escape") {
       onPreview(current);
       onClose();
-    } else if (id === "return") {
-      const theme = THEME_CHOICES[cursor];
-      onClose();
-      if (theme) {
-        onChoose(theme.id);
-      }
-    } else if (id === "down" || id === "j") {
-      pick(cursor + 1);
-    } else if (id === "up" || id === "k") {
-      pick(cursor - 1);
     }
   });
+  const themeAt = (i: number) => THEME_CHOICES[i]?.id ?? current;
   return (
     <Modal title="Theme" width={56} footer="↑↓ preview · ⏎ keep · esc cancel">
-      <PickList
-        items={THEME_CHOICES.map((t) => ({
-          key: t.id,
-          label: t.label,
-          mark: t.id === current ? "●" : " ",
+      <Choices
+        choices={THEME_CHOICES.map((t) => ({
+          hint: t.id === current ? "current" : "",
+          name: t.label,
         }))}
-        cursor={cursor}
+        index={Math.max(
+          0,
+          THEME_CHOICES.findIndex((t) => t.id === current)
+        )}
+        focused
         height={THEME_CHOICES.length}
         width={52}
+        onChange={(i) => onPreview(themeAt(i))}
+        onSelect={(i) => {
+          onClose();
+          onChoose(themeAt(i));
+        }}
       />
     </Modal>
   );
@@ -416,19 +414,9 @@ export const CopyModal = ({
   onClose: () => void;
 }) => {
   const choices = copyChoices(pr);
-  const { cursor, move } = useListNav(choices.length);
   useKeyboard((key: KeyEvent) => {
-    const id = keyId(key);
-    if (id === "escape") {
+    if (keyId(key) === "escape") {
       onClose();
-    } else if (id === "return") {
-      const choice = choices[cursor];
-      onClose();
-      if (choice) {
-        onCopy(choice);
-      }
-    } else if (!move(id) && (id === "j" || id === "k")) {
-      move(id === "j" ? "down" : "up");
     }
   });
   return (
@@ -437,15 +425,21 @@ export const CopyModal = ({
       width={72}
       footer="↑↓ choose · ⏎ copy · esc close"
     >
-      <PickList
-        items={choices.map((c) => ({
+      <Choices
+        choices={choices.map((c) => ({
           hint: fit(c.value, 40),
-          key: c.label,
-          label: c.label,
+          name: c.label,
         }))}
-        cursor={cursor}
+        focused
         height={choices.length}
         width={68}
+        onSelect={(i) => {
+          const choice = choices[i];
+          onClose();
+          if (choice) {
+            onCopy(choice);
+          }
+        }}
       />
     </Modal>
   );
@@ -462,22 +456,29 @@ export const ComposeModal = ({
   onSubmit: (body: string) => void;
   onClose: () => void;
 }) => {
-  const [body, setBody] = useState("");
   useKeyboard((key: KeyEvent) => {
-    const id = keyId(key);
-    if (id === "escape") {
+    if (keyId(key) === "escape") {
       onClose();
-    } else if (id === "return" && body.trim()) {
-      onClose();
-      onSubmit(body.trim());
     }
   });
   return (
-    <Modal title={title} width={72} footer="⏎ post · esc cancel">
+    <Modal
+      title={title}
+      width={72}
+      footer="⏎ post · shift+⏎ new line · esc cancel"
+    >
       <text fg={C.faint} marginBottom={1} wrapMode="none" truncate>
         {context}
       </text>
-      <Search value={body} placeholder="write a comment…" onInput={setBody} />
+      <Editor
+        placeholder="write a comment…"
+        onSubmit={(body) => {
+          if (body) {
+            onClose();
+            onSubmit(body);
+          }
+        }}
+      />
     </Modal>
   );
 };
@@ -493,7 +494,7 @@ export const FilesModal = ({
 }) => {
   const [query, setQuery] = useState("");
   const shown = files.filter((f) => fuzzy(query, f.path));
-  const { cursor, move } = useListNav(shown.length);
+  const { cursor, move } = useSearchCursor(shown.length);
   useKeyboard((key: KeyEvent) => {
     const id = keyId(key);
     if (id === "escape") {
@@ -515,13 +516,12 @@ export const FilesModal = ({
       footer="↑↓ choose · ⏎ jump · esc close"
     >
       <Search value={query} placeholder="filter files…" onInput={setQuery} />
-      <PickList
-        items={shown.map((f) => ({
+      <Choices
+        choices={shown.map((f) => ({
           hint: `+${f.additions} −${f.deletions}`,
-          key: f.path,
-          label: f.path,
+          name: f.path,
         }))}
-        cursor={cursor}
+        index={cursor}
         height={16}
         width={76}
       />

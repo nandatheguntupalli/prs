@@ -174,7 +174,7 @@ const DetailHeader = ({
         paddingBottom={1}
       >
         <text fg={C.dim} wrapMode="none">
-          {fit(`${pr.repo} · #${pr.number}`, width - 4)}
+          <a href={pr.url}>{fit(`${pr.repo} · #${pr.number}`, width - 4)}</a>
         </text>
         <text fg={C.text} attributes={BOLD} wrapMode="word" marginTop={1}>
           {pr.title}

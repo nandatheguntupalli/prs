@@ -1,16 +1,17 @@
+import { memo } from "react";
 import type { ReactNode } from "react";
 
 import { C } from "../theme.ts";
 import type { ParsedDiff, Row } from "./diff-model.ts";
 import { age, fit, plural } from "./format.ts";
-import { BOLD } from "./primitives.tsx";
+import { BOLD, ScrollList } from "./primitives.tsx";
 
 // old line, new line, sign
 const GUTTER = 11;
 
 const num = (n: number | null) => (n === null ? "" : String(n)).padStart(4);
 
-const RowView = ({
+const DiffRow = ({
   row,
   width,
   cursor,
@@ -103,6 +104,9 @@ const RowView = ({
   );
 };
 
+// only the rows whose cursor or range state changed re-render
+const RowView = memo(DiffRow);
+
 export const DiffView = ({
   title,
   subtitle,
@@ -123,10 +127,6 @@ export const DiffView = ({
   loading: boolean;
 }) => {
   const bodyH = height - 2;
-  const start = Math.max(
-    0,
-    Math.min(cursor - Math.floor(bodyH / 2), rows.length - bodyH)
-  );
   const [lo, hi] =
     rangeStart === null
       ? [-1, -1]
@@ -142,16 +142,18 @@ export const DiffView = ({
           Loading diff…
         </text>
       ) : (
-        rows.slice(start, start + bodyH).map((row, i) => (
-          <RowView
-            // oxlint-disable-next-line react/no-array-index-key -- rows are positional
-            key={start + i}
-            row={row}
-            width={width - 2}
-            cursor={start + i === cursor}
-            inRange={start + i >= lo && start + i <= hi}
-          />
-        ))
+        <ScrollList cursor={cursor} height={bodyH}>
+          {rows.map((row, i) => (
+            <RowView
+              // oxlint-disable-next-line react/no-array-index-key -- rows are positional
+              key={i}
+              row={row}
+              width={width - 2}
+              cursor={i === cursor}
+              inRange={i >= lo && i <= hi}
+            />
+          ))}
+        </ScrollList>
       )}
     </box>
   );

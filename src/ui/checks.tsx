@@ -4,10 +4,7 @@ import { isErrorLine } from "../github/checks.ts";
 import type { Check, Step } from "../github/checks.ts";
 import { C } from "../theme.ts";
 import { checkIcon, duration, fit } from "./format.ts";
-import { BOLD, Centered } from "./primitives.tsx";
-
-const scrollStart = (cursor: number, height: number, total: number) =>
-  Math.max(0, Math.min(cursor - Math.floor(height / 2), total - height));
+import { BOLD, Centered, ScrollList } from "./primitives.tsx";
 
 export const ChecksView = ({
   title,
@@ -41,39 +38,40 @@ export const ChecksView = ({
       </Centered>
     );
   }
-  const start = scrollStart(cursor, bodyH, checks.length);
   return (
     <box flexGrow={1} flexDirection="column" paddingLeft={1} paddingRight={1}>
       {title}
       <text fg={C.faint}>{summary}</text>
-      {checks.slice(start, start + bodyH).map((check, i) => {
-        const on = start + i === cursor;
-        const st = checkIcon(check.state);
-        const time = duration(check.startedAt, check.completedAt);
-        return (
-          <box
-            key={`${check.group}/${check.name}/${start + i}`}
-            height={1}
-            flexDirection="row"
-            justifyContent="space-between"
-            backgroundColor={on ? C.selected : C.bg}
-          >
-            <text wrapMode="none">
-              <span fg={C.accent}>{on ? "▌ " : "  "}</span>
-              <span fg={st.color}>{`${st.icon} `}</span>
-              <span fg={C.text} attributes={on ? BOLD : 0}>
-                {fit(check.name, Math.max(10, width - 40))}
-              </span>
-              <span fg={C.faint}>
-                {check.group ? `  ${fit(check.group, 20)}` : ""}
-              </span>
-            </text>
-            <text fg={C.faint}>
-              {`${check.jobId ? "›" : "↗"} ${time}`.padStart(10)}
-            </text>
-          </box>
-        );
-      })}
+      <ScrollList cursor={cursor} height={bodyH}>
+        {checks.map((check, i) => {
+          const on = i === cursor;
+          const st = checkIcon(check.state);
+          const time = duration(check.startedAt, check.completedAt);
+          return (
+            <box
+              key={`${check.group}/${check.name}/${i}`}
+              height={1}
+              flexDirection="row"
+              justifyContent="space-between"
+              backgroundColor={on ? C.selected : C.bg}
+            >
+              <text wrapMode="none">
+                <span fg={C.accent}>{on ? "▌ " : "  "}</span>
+                <span fg={st.color}>{`${st.icon} `}</span>
+                <span fg={C.text} attributes={on ? BOLD : 0}>
+                  {fit(check.name, Math.max(10, width - 40))}
+                </span>
+                <span fg={C.faint}>
+                  {check.group ? `  ${fit(check.group, 20)}` : ""}
+                </span>
+              </text>
+              <text fg={C.faint}>
+                {`${check.jobId ? "›" : "↗"} ${time}`.padStart(10)}
+              </text>
+            </box>
+          );
+        })}
+      </ScrollList>
     </box>
   );
 };
@@ -98,7 +96,6 @@ export const JobView = ({
   const stepRows = Math.min(steps?.length ?? 1, Math.floor(height * 0.35));
   const logH = Math.max(3, height - stepRows - 4);
   const st = checkIcon(check.state);
-  const start = scrollStart(cursor, logH, log?.length ?? 0);
   return (
     <box flexGrow={1} flexDirection="column" paddingLeft={1} paddingRight={1}>
       {title}
@@ -129,26 +126,28 @@ export const JobView = ({
       </box>
       <text fg={C.border}>{"─".repeat(Math.max(0, width - 2))}</text>
       {log ? (
-        log.slice(start, start + logH).map((line, i) => {
-          const on = start + i === cursor;
-          const bad = isErrorLine(line);
-          return (
-            <box
-              // oxlint-disable-next-line react/no-array-index-key -- log lines are positional
-              key={start + i}
-              height={1}
-              backgroundColor={on ? C.selected : C.bg}
-            >
-              <text wrapMode="none" fg={bad ? C.red : C.dim}>
-                <span fg={C.accent}>{on ? "▌" : " "}</span>
-                {fit(
-                  line.replace(/^##\[(?:group|endgroup|error)\]/u, ""),
-                  width - 3
-                )}
-              </text>
-            </box>
-          );
-        })
+        <ScrollList cursor={cursor} height={logH}>
+          {log.map((line, i) => {
+            const on = i === cursor;
+            const bad = isErrorLine(line);
+            return (
+              <box
+                // oxlint-disable-next-line react/no-array-index-key -- log lines are positional
+                key={i}
+                height={1}
+                backgroundColor={on ? C.selected : C.bg}
+              >
+                <text wrapMode="none" fg={bad ? C.red : C.dim}>
+                  <span fg={C.accent}>{on ? "▌" : " "}</span>
+                  {fit(
+                    line.replace(/^##\[(?:group|endgroup|error)\]/u, ""),
+                    width - 3
+                  )}
+                </text>
+              </box>
+            );
+          })}
+        </ScrollList>
       ) : (
         <text fg={C.dim}>Loading log…</text>
       )}
