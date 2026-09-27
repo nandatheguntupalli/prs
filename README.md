@@ -8,7 +8,7 @@ Superhuman for pull requests. A keyboard-first TUI for clearing your PR inbox, b
 brew install nandatheguntupalli/tap/prs
 ```
 
-Requires the [`gh` CLI](https://cli.github.com), logged in (`gh auth login`). Homebrew installs it for you.
+Talks to GitHub directly through its API. It signs in with the [`gh` CLI](https://cli.github.com)'s login (`gh auth login`; Homebrew installs `gh` for you), or set `GITHUB_TOKEN` to use a token instead.
 
 ## Usage
 

@@ -50,7 +50,7 @@ export const usePendingAction = ({
     flash(`${verb.doing} #${p.pr.number}…`, C.yellow);
     try {
       await (p.kind === "merge"
-        ? merge(repo, p.pr.number, method)
+        ? merge(repo, p.pr, method)
         : closePR(repo, p.pr.number));
       flash(`✓ ${verb.done} #${p.pr.number} ${p.pr.title}`, C.green);
     } catch (error) {
