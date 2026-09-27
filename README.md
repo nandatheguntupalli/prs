@@ -1,8 +1,25 @@
+<div align="center">
+
 # prs
 
-A keyboard-first terminal UI for reviewing and merging pull requests. One key to merge, one key to undo.
+**A keyboard-first terminal UI for reviewing and merging pull requests.** One key to merge, one key to undo.
 
-Built with [OpenTUI](https://github.com/anomalyco/opentui) and Bun.
+[![CI](https://github.com/nandatheguntupalli/prs/actions/workflows/ci.yml/badge.svg)](https://github.com/nandatheguntupalli/prs/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/nandatheguntupalli/prs?color=2dd4bf)](https://github.com/nandatheguntupalli/prs/releases/latest) [![Homebrew](https://img.shields.io/badge/homebrew-nandatheguntupalli%2Ftap-2dd4bf?logo=homebrew&logoColor=white)](https://github.com/nandatheguntupalli/homebrew-tap) [![License: MIT](https://img.shields.io/badge/license-MIT-2dd4bf)](LICENSE) [![Built with Bun](https://img.shields.io/badge/built%20with-Bun-000?logo=bun)](https://bun.sh)
+
+[Install](#install) · [Usage](#usage) · [Keys](#keys) · [Stacked PRs](#stacked-prs) · [Settings](#settings) · [Contributing](#contributing)
+
+</div>
+
+---
+
+## Features
+
+- **Merge in one keystroke.** `m` merges, and `z` undoes it for a few seconds after.
+- **Review without leaving the terminal.** Read diffs with inline review comments, comment on lines or ranges, approve or request changes.
+- **CI at a glance.** See every check, then drill into an Actions job's steps and logs, jumping between errors.
+- **Stacked PRs.** Stacks are shown together and merged in one go, including GitHub's native stacks.
+- **Your whole inbox.** One repo, or every PR you're involved in across GitHub, plus your own tabs from any GitHub search.
+- **Fits your setup.** Themes that follow your terminal's light or dark mode, mouse support, and open-in-editor.
 
 ## Install
 
@@ -10,7 +27,9 @@ Built with [OpenTUI](https://github.com/anomalyco/opentui) and Bun.
 brew install nandatheguntupalli/tap/prs
 ```
 
-prs uses your [`gh`](https://cli.github.com) login (`gh auth login`), or `GITHUB_TOKEN` if it's set.
+Or grab a binary for macOS or Linux from the [latest release](https://github.com/nandatheguntupalli/prs/releases/latest).
+
+prs signs in with your [`gh`](https://cli.github.com) login (`gh auth login`), or with `GITHUB_TOKEN` if it's set.
 
 ## Usage
 
@@ -21,74 +40,78 @@ prs --all             # your PRs across GitHub
 prs --method squash   # merge (default), squash or rebase
 prs --update merge    # how `u` updates a branch: rebase (default) or merge
 prs --delay 2         # seconds before a merge or close goes through (default 4)
-prs --dry-run         # don't change anything on GitHub
+prs --dry-run         # try it out without changing anything on GitHub
 ```
 
-`?` lists every key, and `ctrl+p` opens a command palette.
+Press `?` for every key, or `ctrl+p` for the command palette.
 
-## Pull requests
+Inside a repo you get **All**, **Mine**, **Review requested**, **Merged** and **Closed** tabs. With `--all` you get **Mine**, **Review requested**, **Involved**, **Merged** and **Closed** across every repo.
 
-Inside a repo you get **All**, **Mine**, **Review requested**, **Merged** and **Closed**. With `--all` you get **Mine**, **Review requested**, **Involved**, **Merged** and **Closed** across every repo. You can add your own tabs too (see [Settings](#settings)).
+Merges and closes wait a few seconds before they go through, so `z` can take them back. After that the PR stays in the list, marked **Merged** or **Closed**, until you refresh with `r`.
 
-| key |                                                                    |
-| --- | ------------------------------------------------------------------ |
-| `m` | merge (and delete the branch)                                      |
-| `x` | close, or reopen a closed PR                                       |
-| `z` | undo a merge or close                                              |
-| `a` | approve                                                            |
-| `R` | review with a comment, approval or change request                  |
-| `u` | update the branch from its base                                    |
-| `s` | toggle draft                                                       |
-| `L` | labels                                                             |
-| `c` | checks, then a job's steps and log (`n` / `p` jump between errors) |
-| `y` | copy the URL, branch, or a checkout command                        |
-| `e` | open in your editor                                                |
-| `B` | check out the branch locally                                       |
-| `o` | open in the browser                                                |
+## Keys
 
-Merges and closes wait a few seconds before they go through, so `z` can take them back. Once done, the PR stays in the list marked **Merged** or **Closed** until you refresh with `r`.
+<table>
+<tr><th>Pull requests</th><th>Moving around</th><th>Diffs</th></tr>
+<tr valign="top"><td>
 
-The details pane has **Overview**, **Activity**, **Commits**, **Checks** and **Files Changed** tabs (`[` / `]`). Links in PR descriptions are clickable.
+| key |                  |
+| --- | ---------------- |
+| `m` | merge            |
+| `x` | close / reopen   |
+| `z` | undo             |
+| `a` | approve          |
+| `R` | review           |
+| `u` | update branch    |
+| `s` | toggle draft     |
+| `L` | labels           |
+| `c` | checks and logs  |
+| `y` | copy             |
+| `e` | open in editor   |
+| `B` | check out branch |
+| `o` | open in browser  |
 
-## Moving around
+</td><td>
 
-| key                   |                                |
-| --------------------- | ------------------------------ |
-| `j` / `k`, `gg` / `G` | move, top, bottom              |
-| `ctrl+d` / `ctrl+u`   | page down / up                 |
-| `tab`, `1`–`9`        | switch tabs                    |
-| `/`                   | filter                         |
-| `⏎` / `d`             | diff                           |
-| `p`                   | toggle the details pane        |
-| `{` / `}`, `=`        | resize the details pane, reset |
-| `t`                   | theme                          |
+| key               |                |
+| ----------------- | -------------- |
+| `j` `k`           | move           |
+| `gg` `G`          | top, bottom    |
+| `ctrl+d` `ctrl+u` | page           |
+| `tab` `1`–`9`     | switch tabs    |
+| `/`               | filter         |
+| `⏎` `d`           | open diff      |
+| `[` `]`           | details tabs   |
+| `p`               | toggle details |
+| `{` `}` `=`       | resize details |
+| `t`               | theme          |
+| `r`               | refresh        |
 
-The mouse works as well. You can click rows, tabs and buttons, and drag the divider.
+</td><td>
 
-## Diffs
+| key     |                     |
+| ------- | ------------------- |
+| `]` `[` | next / prev file    |
+| `f`     | jump to file        |
+| `n` `p` | next / prev comment |
+| `⏎`     | comment or reply    |
+| `v`     | select lines        |
+| `J` `K` | next / prev PR      |
 
-Review comments show inline under the lines they're on.
-
-| key       |                                         |
-| --------- | --------------------------------------- |
-| `]` / `[` | next / previous file                    |
-| `f`       | jump to a file                          |
-| `n` / `p` | next / previous comment                 |
-| `⏎`       | comment on a line, or reply to a thread |
-| `v`       | select a range of lines to comment on   |
-| `J` / `K` | next / previous PR                      |
+</td></tr>
+</table>
 
 ## Stacked PRs
 
-When one PR's base is another PR's branch, they're shown together as a stack. Merging a PR in a stack merges everything below it too, and the button tells you how many.
+When one PR's base is another PR's branch, they're grouped as a stack. Merging a PR in a stack merges everything below it too, and the button tells you how many.
 
-Native GitHub stacks are merged with `gh stack merge`, so you'll need the [gh-stack](https://github.com/github/gh-stack) extension. Other chains are merged top-down into each parent's branch, and PRs above are re-pointed before any branch gets deleted.
+GitHub's native stacks are merged with `gh stack merge`, so you'll need the [gh-stack](https://github.com/github/gh-stack) extension. Other chains are merged top-down into each parent's branch, and PRs above are re-pointed before any branch is deleted.
 
-After a squash merge, the PRs above still carry the old commits and need a restack (`gh stack sync` or `git rebase --onto`). prs won't do that for you since it means force-pushing someone else's branch.
+> [!NOTE] After a squash merge, the PRs above still carry the old commits and need a restack (`gh stack sync` or `git rebase --onto`). prs won't do that for you, since it means force-pushing someone else's branch.
 
 ## Settings
 
-`~/.config/prs/config.json`:
+Settings live in `~/.config/prs/config.json`:
 
 ```jsonc
 {
@@ -98,8 +121,8 @@ After a squash merge, the PRs above still carry the old commits and need a resta
   // "plain" if your font doesn't have Nerd Font icons
   "icons": "nerd",
 
-  // what `e` runs. Available: {{repo}} {{owner}} {{name}} {{number}} {{headRef}}
-  // {{baseRef}} {{author}} {{url}} {{repoPath}}
+  // what `e` runs. Available: {{repo}} {{owner}} {{name}} {{number}}
+  // {{headRef}} {{baseRef}} {{author}} {{url}} {{repoPath}}
   "editorCommand": "code {{repoPath}}",
 
   // extra tabs, as GitHub searches
@@ -119,14 +142,15 @@ After a squash merge, the PRs above still carry the old commits and need a resta
 
 Without `editorCommand`, `e` uses `$VISUAL` or `$EDITOR`.
 
-## Development
+## Contributing
+
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) to get set up.
 
 ```sh
 bun install
-bun start owner/repo
-bun test
-bun run check         # lint and format
-bun run build         # binary at dist/prs
+bun start owner/repo --dry-run
 ```
 
-`bun run release [patch|minor|major]` tags a new version. CI builds the binaries, publishes the GitHub release and updates the [Homebrew tap](https://github.com/nandatheguntupalli/homebrew-tap).
+## License
+
+[MIT](LICENSE) © Nanda Guntupalli
