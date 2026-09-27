@@ -12,7 +12,7 @@ export const formula = (version: string, sha: Record<Target, string>) => {
     `      url "${base}/prs-${t}.tar.gz"\n      sha256 "${sha[t]}"`;
 
   return `class Prs < Formula
-  desc "Superhuman for pull requests: a keyboard-first TUI for reviewing and merging PRs"
+  desc "Keyboard-first terminal UI for reviewing and merging pull requests"
   homepage "https://github.com/nandatheguntupalli/prs"
   version "${version}"
   license "MIT"

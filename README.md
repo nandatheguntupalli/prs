@@ -1,6 +1,6 @@
 # prs
 
-A keyboard-first terminal UI for reviewing and merging pull requests. Superhuman for PRs: one key to merge, one key to undo.
+A keyboard-first terminal UI for reviewing and merging pull requests. One key to merge, one key to undo.
 
 Built with [OpenTUI](https://github.com/anomalyco/opentui) and Bun.
 
