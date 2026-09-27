@@ -11,6 +11,7 @@ const pr = (
 ): PR => ({
   additions: 0,
   author: "a",
+  authorAssociation: "MEMBER",
   baseRefName: base,
   body: "",
   changedFiles: 0,

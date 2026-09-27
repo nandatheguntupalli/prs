@@ -1,14 +1,19 @@
+import { listChecks } from "../github/checks.ts";
+import { listActivity, listCommits, listFiles } from "../github/details.ts";
 import type { PR } from "../github/prs.ts";
+import { useLoader } from "../hooks.ts";
 import { prKey } from "../stacks.ts";
 import type { StackPlace } from "../stacks.ts";
 import { C } from "../theme.ts";
 import {
   age,
+  checkIcon,
   checksStatus,
+  cleanMarkdown,
+  duration,
   fit,
   labelText,
   plural,
-  cleanMarkdown,
   reviewState,
   reviewStatus,
 } from "./format.ts";
@@ -120,13 +125,364 @@ const LabelChips = ({ pr }: { pr: PR }) =>
     </box>
   );
 
+export type DetailTab =
+  | "overview"
+  | "activity"
+  | "commits"
+  | "checks"
+  | "files";
+
+export const DETAIL_TABS: { id: DetailTab; label: string }[] = [
+  { id: "overview", label: "Overview" },
+  { id: "activity", label: "Activity" },
+  { id: "commits", label: "Commits" },
+  { id: "checks", label: "Checks" },
+  { id: "files", label: "Files Changed" },
+];
+
+const Loading = ({ error }: { error: string }) => (
+  <text fg={error ? C.red : C.faint}>{error || "Loading…"}</text>
+);
+
+// repo and number, the title, then state, branches, and who opened it
+const DetailHeader = ({
+  pr,
+  width,
+  tab,
+  onTab,
+}: {
+  pr: PR;
+  width: number;
+  tab: DetailTab;
+  onTab: (tab: DetailTab) => void;
+}) => {
+  const association =
+    pr.authorAssociation && pr.authorAssociation !== "NONE"
+      ? ` · ${pr.authorAssociation.toLowerCase()}`
+      : "";
+  return (
+    <box flexDirection="column" flexShrink={0}>
+      <box
+        flexDirection="column"
+        backgroundColor={C.panel}
+        paddingLeft={1}
+        paddingRight={1}
+        paddingTop={1}
+        paddingBottom={1}
+      >
+        <text fg={C.dim} wrapMode="none">
+          {fit(`${pr.repo} · #${pr.number}`, width - 4)}
+        </text>
+        <text fg={C.text} attributes={BOLD} wrapMode="word" marginTop={1}>
+          {pr.title}
+        </text>
+      </box>
+      <box flexDirection="column" paddingLeft={1} marginTop={1}>
+        <text wrapMode="none">
+          <span bg={pr.isDraft ? C.faint : C.blue} fg={C.bg} attributes={BOLD}>
+            {pr.isDraft ? " ◇ Draft " : " ⎇ Open "}
+          </span>
+          <span fg={C.dim}>
+            {fit(`  ${pr.baseRefName} ← ${pr.headRefName}`, width - 12)}
+          </span>
+        </text>
+        <text wrapMode="none" marginTop={1}>
+          <span fg={C.dim}>by </span>
+          <span fg={C.text} attributes={BOLD}>{`@${pr.author}`}</span>
+          <span
+            fg={C.faint}
+          >{` · ${age(pr.createdAt)} ago${association}`}</span>
+        </text>
+        <box flexDirection="row" gap={2} marginTop={1} height={1}>
+          {DETAIL_TABS.map((t) => (
+            <box key={t.id} onMouseDown={() => onTab(t.id)}>
+              <text
+                fg={t.id === tab ? C.accent : C.dim}
+                attributes={t.id === tab ? BOLD : 0}
+              >
+                {t.label}
+              </text>
+            </box>
+          ))}
+        </box>
+      </box>
+      <text fg={C.border} wrapMode="none">
+        {"─".repeat(Math.max(0, width))}
+      </text>
+    </box>
+  );
+};
+
+const Overview = ({
+  pr,
+  width,
+  behind,
+  stack,
+  mergeCount,
+  actions,
+}: {
+  pr: PR;
+  width: number;
+  behind: number | undefined;
+  stack: StackPlace | undefined;
+  mergeCount: number;
+  actions: PRActions;
+}) => {
+  const ci = checksStatus(pr.checks);
+  const rv = reviewStatus(pr);
+  const conflicted = pr.mergeable === "CONFLICTING";
+  return (
+    <box flexDirection="column">
+      <LabelChips pr={pr} />
+      <SectionTitle>Status</SectionTitle>
+      <text fg={ci.color}>
+        {`${ci.icon} ${ci.label}`}
+        <span fg={C.faint}>{pr.checks === "none" ? "" : "  c to view"}</span>
+      </text>
+      <text fg={rv.color}>{`${rv.icon} ${rv.label}`}</text>
+      <BehindLine pr={pr} behind={behind} />
+      <text fg={C.dim}>
+        <span fg={C.green}>+{pr.additions}</span>{" "}
+        <span fg={C.red}>−{pr.deletions}</span>
+        {` · ${plural(pr.changedFiles, "file")}`}
+        {pr.comments > 0 ? ` · ${plural(pr.comments, "comment")}` : ""}
+      </text>
+
+      <Reviewers pr={pr} width={width} />
+      {stack ? <StackList pr={pr} place={stack} width={width} /> : null}
+
+      <box
+        flexDirection="row"
+        flexWrap="wrap"
+        columnGap={1}
+        rowGap={0}
+        marginTop={1}
+      >
+        <Button
+          label={mergeCount > 1 ? `Merge ${mergeCount}` : "Merge"}
+          color={C.green}
+          onPress={actions.handleMerge}
+        />
+        <Button
+          label="Approve"
+          color={C.blue}
+          onPress={actions.handleApprove}
+        />
+        {behind && behind > 0 && !conflicted ? (
+          <Button
+            label="Update"
+            color={C.yellow}
+            onPress={actions.handleUpdate}
+          />
+        ) : null}
+        <Button label="Close" color={C.red} onPress={actions.handleClose} />
+        <Button label="Open" color={C.dim} onPress={actions.handleOpen} />
+      </box>
+
+      <SectionTitle>Description</SectionTitle>
+      <markdown
+        content={cleanMarkdown(pr.body)}
+        syntaxStyle={markdownStyle()}
+        fg={C.dim}
+        conceal
+      />
+    </box>
+  );
+};
+
+const ACTION_COLORS: Record<string, () => string> = {
+  approved: () => C.green,
+  "requested changes": () => C.red,
+};
+
+// the conversation, oldest first: who said what, with each body rendered as markdown
+const Activity = ({ pr }: { pr: PR }) => {
+  const items = useLoader(`activity:${prKey(pr)}`, () => listActivity(pr));
+  if (!items.value) {
+    return <Loading error={items.error} />;
+  }
+  if (items.value.length === 0) {
+    return <text fg={C.faint}>No comments or reviews yet.</text>;
+  }
+  return (
+    <box flexDirection="column">
+      {items.value.map((item) => (
+        <box key={item.id} flexDirection="column" marginBottom={1}>
+          <text wrapMode="none">
+            <span fg={C.text} attributes={BOLD}>{`@${item.author}`}</span>
+            <span
+              fg={ACTION_COLORS[item.action]?.() ?? C.dim}
+            >{` ${item.action}`}</span>
+            <span fg={C.faint}>{` · ${age(item.createdAt)} ago`}</span>
+          </text>
+          {item.body.trim() ? (
+            <markdown
+              content={cleanMarkdown(item.body)}
+              syntaxStyle={markdownStyle()}
+              fg={C.dim}
+              conceal
+            />
+          ) : null}
+        </box>
+      ))}
+    </box>
+  );
+};
+
+const Commits = ({ pr, width }: { pr: PR; width: number }) => {
+  const commits = useLoader(`commits:${prKey(pr)}:${pr.headRefOid}`, () =>
+    listCommits(pr)
+  );
+  if (!commits.value) {
+    return <Loading error={commits.error} />;
+  }
+  return (
+    <box flexDirection="column">
+      {commits.value.map((c) => (
+        <box key={c.sha} flexDirection="column" marginBottom={1}>
+          <text wrapMode="none">
+            <span fg={C.accent}>{`${c.sha} `}</span>
+            <span fg={C.text}>{fit(c.message, width - 9)}</span>
+          </text>
+          <text fg={C.faint} wrapMode="none">
+            {`        ${c.author} · ${age(c.date)} ago`}
+          </text>
+        </box>
+      ))}
+    </box>
+  );
+};
+
+const ChecksTab = ({ pr, width }: { pr: PR; width: number }) => {
+  const checks = useLoader(`checks:${prKey(pr)}:${pr.headRefOid}`, () =>
+    listChecks(pr)
+  );
+  if (!checks.value) {
+    return <Loading error={checks.error} />;
+  }
+  if (checks.value.length === 0) {
+    return <text fg={C.faint}>No checks on this PR.</text>;
+  }
+  return (
+    <box flexDirection="column">
+      {checks.value.map((c) => {
+        const st = checkIcon(c.state);
+        const time = duration(c.startedAt, c.completedAt);
+        return (
+          <text key={`${c.group}/${c.name}`} wrapMode="none">
+            <span fg={st.color}>{`${st.icon} `}</span>
+            <span fg={C.text}>{fit(c.name, Math.max(8, width - 24))}</span>
+            <span fg={C.faint}>{`  ${fit(c.group, 12)} ${time}`}</span>
+          </text>
+        );
+      })}
+      <text fg={C.faint} marginTop={1}>
+        c opens checks with steps and logs
+      </text>
+    </box>
+  );
+};
+
+const FILE_STATUS: Record<string, { mark: string; color: () => string }> = {
+  added: { color: () => C.green, mark: "A" },
+  modified: { color: () => C.yellow, mark: "M" },
+  removed: { color: () => C.red, mark: "D" },
+  renamed: { color: () => C.blue, mark: "R" },
+};
+
+const Files = ({ pr, width }: { pr: PR; width: number }) => {
+  const files = useLoader(`files:${prKey(pr)}:${pr.headRefOid}`, () =>
+    listFiles(pr)
+  );
+  if (!files.value) {
+    return <Loading error={files.error} />;
+  }
+  return (
+    <box flexDirection="column">
+      {files.value.map((f) => {
+        const st = FILE_STATUS[f.status] ?? { color: () => C.dim, mark: "·" };
+        const stats = `+${f.additions} −${f.deletions}`;
+        return (
+          <box
+            key={f.path}
+            height={1}
+            flexDirection="row"
+            justifyContent="space-between"
+          >
+            <text wrapMode="none">
+              <span fg={st.color()}>{`${st.mark} `}</span>
+              <span fg={C.text}>
+                {fit(f.path, Math.max(8, width - stats.length - 4))}
+              </span>
+            </text>
+            <text wrapMode="none">
+              <span fg={C.green}>{`+${f.additions}`}</span>
+              <span fg={C.red}>{` −${f.deletions}`}</span>
+            </text>
+          </box>
+        );
+      })}
+      <text fg={C.faint} marginTop={1}>
+        ⏎ opens the diff
+      </text>
+    </box>
+  );
+};
+
+// what the selected tab shows
+const TabContent = ({
+  tab,
+  pr,
+  width,
+  behind,
+  stack,
+  mergeCount,
+  actions,
+}: {
+  tab: DetailTab;
+  pr: PR;
+  width: number;
+  behind: number | undefined;
+  stack: StackPlace | undefined;
+  mergeCount: number;
+  actions: PRActions;
+}) => {
+  switch (tab) {
+    case "activity": {
+      return <Activity pr={pr} />;
+    }
+    case "commits": {
+      return <Commits pr={pr} width={width} />;
+    }
+    case "checks": {
+      return <ChecksTab pr={pr} width={width} />;
+    }
+    case "files": {
+      return <Files pr={pr} width={width} />;
+    }
+    default: {
+      return (
+        <Overview
+          pr={pr}
+          width={width}
+          behind={behind}
+          stack={stack}
+          mergeCount={mergeCount}
+          actions={actions}
+        />
+      );
+    }
+  }
+};
+
 export const Sidebar = ({
   pr,
   width,
   behind,
   stack,
   mergeCount,
-  showRepo,
+  tab,
+  onTab,
   actions,
 }: {
   pr: PR;
@@ -135,97 +491,32 @@ export const Sidebar = ({
   stack: StackPlace | undefined;
   // how many PRs merging this one takes: it and everything below it in its stack
   mergeCount: number;
-  showRepo: boolean;
+  tab: DetailTab;
+  onTab: (tab: DetailTab) => void;
   actions: PRActions;
 }) => {
-  const ci = checksStatus(pr.checks);
-  const rv = reviewStatus(pr);
   const inner = width - 3;
-  const conflicted = pr.mergeable === "CONFLICTING";
   return (
-    <box
-      width={width}
-      flexDirection="column"
-      paddingLeft={2}
-      paddingRight={1}
-      overflow="hidden"
-    >
-      {/* the description can be huge, so only it may shrink; everything above keeps its height */}
-      <box flexDirection="column" flexShrink={0}>
-        <text fg={C.text} attributes={BOLD} wrapMode="word">
-          {pr.title}
-        </text>
-        <text fg={C.dim} wrapMode="none">
-          <span fg={C.accent}>
-            {showRepo ? `${pr.repo}#${pr.number}` : `#${pr.number}`}
-          </span>
-          <span>
-            {fit(
-              ` · ${pr.author} · opened ${age(pr.createdAt)} ago`,
-              Math.max(8, inner - (showRepo ? pr.repo.length : 0) - 6)
-            )}
-          </span>
-        </text>
-        <text fg={C.faint} wrapMode="none" truncate>
-          {fit(`${pr.baseRefName} ← ${pr.headRefName}`, inner)}
-        </text>
-        <LabelChips pr={pr} />
-
-        <SectionTitle>Status</SectionTitle>
-        <text fg={ci.color}>
-          {`${ci.icon} ${ci.label}`}
-          <span fg={C.faint}>{pr.checks === "none" ? "" : "  c to view"}</span>
-        </text>
-        <text fg={rv.color}>{`${rv.icon} ${rv.label}`}</text>
-        <BehindLine pr={pr} behind={behind} />
-        <text fg={C.dim}>
-          <span fg={C.green}>+{pr.additions}</span>{" "}
-          <span fg={C.red}>−{pr.deletions}</span>
-          {` · ${plural(pr.changedFiles, "file")}`}
-          {pr.comments > 0 ? ` · ${plural(pr.comments, "comment")}` : ""}
-        </text>
-
-        <Reviewers pr={pr} width={inner} />
-        {stack ? <StackList pr={pr} place={stack} width={inner} /> : null}
-
-        <box
-          flexDirection="row"
-          flexWrap="wrap"
-          columnGap={1}
-          rowGap={0}
-          marginTop={1}
-        >
-          <Button
-            label={mergeCount > 1 ? `Merge ${mergeCount}` : "Merge"}
-            color={C.green}
-            onPress={actions.handleMerge}
-          />
-          <Button
-            label="Approve"
-            color={C.blue}
-            onPress={actions.handleApprove}
-          />
-          {behind && behind > 0 && !conflicted ? (
-            <Button
-              label="Update"
-              color={C.yellow}
-              onPress={actions.handleUpdate}
-            />
-          ) : null}
-          <Button label="Close" color={C.red} onPress={actions.handleClose} />
-          <Button label="Open" color={C.dim} onPress={actions.handleOpen} />
-        </box>
-
-        <SectionTitle>Description</SectionTitle>
-      </box>
-      <box flexDirection="column" flexShrink={1} overflow="hidden">
-        <markdown
-          content={cleanMarkdown(pr.body)}
-          syntaxStyle={markdownStyle()}
-          fg={C.dim}
-          conceal
+    <box width={width} flexDirection="column" overflow="hidden">
+      <DetailHeader pr={pr} width={width} tab={tab} onTab={onTab} />
+      <scrollbox
+        flexGrow={1}
+        scrollY
+        paddingLeft={1}
+        paddingRight={1}
+        paddingTop={1}
+        verticalScrollbarOptions={{ visible: false }}
+      >
+        <TabContent
+          tab={tab}
+          pr={pr}
+          width={inner}
+          behind={behind}
+          stack={stack}
+          mergeCount={mergeCount}
+          actions={actions}
         />
-      </box>
+      </scrollbox>
     </box>
   );
 };

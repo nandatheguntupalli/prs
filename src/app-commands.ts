@@ -36,6 +36,8 @@ export interface CommandContext {
   filter: () => unknown;
   openDiff: () => unknown;
   toggleSidebar: () => unknown;
+  // the details pane's tabs: Overview, Activity, Commits, Checks, Files Changed
+  nextDetailTab: (dir: 1 | -1) => unknown;
   resize: (pane: keyof PaneSizes, fraction: number) => unknown;
   resetSizes: () => unknown;
   back: () => unknown;
@@ -267,6 +269,22 @@ export const buildCommands = (x: CommandContext): Cmd[] => {
       keys: ["p"],
       label: "Toggle details",
       run: x.toggleSidebar,
+      screens: L,
+      section: nav,
+    },
+    {
+      id: "next-detail-tab",
+      keys: ["]"],
+      label: "Next details tab",
+      run: () => x.nextDetailTab(1),
+      screens: L,
+      section: nav,
+    },
+    {
+      id: "prev-detail-tab",
+      keys: ["["],
+      label: "Previous details tab",
+      run: () => x.nextDetailTab(-1),
       screens: L,
       section: nav,
     },
@@ -559,6 +577,7 @@ export const HINTS: Record<string, string[]> = {
   job: ["next-error", "prev-error", "open", "back"],
   list: [
     "open-diff",
+    "next-detail-tab",
     "merge",
     "approve",
     "update",

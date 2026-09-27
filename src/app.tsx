@@ -59,10 +59,10 @@ import {
   ReviewModal,
   ThemeModal,
 } from "./ui/modals.tsx";
-import { PRTable, pageSize, tableContentWidth } from "./ui/pr-list.tsx";
+import { PRTable, pageSize } from "./ui/pr-list.tsx";
 import { BOLD, Centered } from "./ui/primitives.tsx";
-import { Sidebar } from "./ui/sidebar.tsx";
-import type { PRActions } from "./ui/sidebar.tsx";
+import { DETAIL_TABS, Sidebar } from "./ui/sidebar.tsx";
+import type { DetailTab, PRActions } from "./ui/sidebar.tsx";
 
 type ModalState =
   | { kind: "palette" }
@@ -148,7 +148,6 @@ interface ListProps {
   places: Map<string, StackPlace>;
   pr: PR | undefined;
   cursor: number;
-  showRepo: boolean;
   handleSelectPR: (i: number) => void;
   sidebar: boolean;
   behind: number | undefined;
@@ -158,6 +157,8 @@ interface ListProps {
   sizes: PaneSizes;
   resizing: Resizing;
   handleGrab: (pane: keyof PaneSizes) => void;
+  detailTab: DetailTab;
+  handleDetailTab: (tab: DetailTab) => void;
   width: number;
   height: number;
 }
@@ -165,11 +166,7 @@ interface ListProps {
 // the PR table and the selected PR's details
 const ListScreen = (p: ListProps) => {
   const paneW = p.width;
-  // the table never needs to be wider than its content; any extra width goes to the details
-  const tableW = tableContentWidth(p.list, p.showRepo);
-  const sideW = p.sidebar
-    ? Math.max(sidebarCells(paneW, true, p.sizes.sidebar), paneW - 1 - tableW)
-    : 0;
+  const sideW = sidebarCells(paneW, p.sidebar, p.sizes.sidebar);
   const showSidebar = Boolean(p.pr) && p.sidebar;
   return (
     <box flexGrow={1} flexDirection="row">
@@ -179,7 +176,6 @@ const ListScreen = (p: ListProps) => {
           places={p.places}
           cursor={p.cursor}
           focused
-          showRepo={p.showRepo}
           width={paneW - sideW - (p.sidebar ? 1 : 0)}
           height={p.height}
           onSelect={p.handleSelectPR}
@@ -200,7 +196,8 @@ const ListScreen = (p: ListProps) => {
           behind={p.behind}
           stack={p.places.get(prKey(p.pr))}
           mergeCount={mergePlan(p.pr, p.places).length}
-          showRepo={p.showRepo}
+          tab={p.detailTab}
+          onTab={p.handleDetailTab}
           actions={p.actions}
         />
       ) : null}
@@ -401,6 +398,7 @@ export const App = ({
   const [screen, setScreen] = useState<Screen>("list");
   const [modal, setModal] = useState<ModalState | null>(null);
   const [sidebar, setSidebar] = useState(true);
+  const [detailTab, setDetailTab] = useState<DetailTab>("overview");
   // null until the user moves: the diff then opens on its first line of code
   const [diffMoved, setDiffMoved] = useState<number | null>(null);
   const [rangeStart, setRangeStart] = useState<number | null>(null);
@@ -699,6 +697,15 @@ export const App = ({
       setRangeStart(null);
       move(n);
     },
+    nextDetailTab: (dir) => {
+      const i = DETAIL_TABS.findIndex((t) => t.id === detailTab);
+      const next =
+        DETAIL_TABS[(i + dir + DETAIL_TABS.length) % DETAIL_TABS.length];
+      if (next) {
+        setDetailTab(next.id);
+        setSidebar(true);
+      }
+    },
     nextError,
     nextFile: (dir) =>
       setDiffMoved(jump(rows, diffCursor, dir, (r) => r.kind === "file")),
@@ -815,7 +822,6 @@ export const App = ({
         places={places}
         pr={pr}
         cursor={Math.min(cursor, Math.max(0, list.length - 1))}
-        showRepo={showRepo}
         handleSelectPR={setCursor}
         sidebar={sidebar}
         behind={behind}
@@ -825,6 +831,8 @@ export const App = ({
         sizes={panes.sizes}
         resizing={panes.resizing}
         handleGrab={panes.setResizing}
+        detailTab={detailTab}
+        handleDetailTab={setDetailTab}
         width={width}
         height={bodyH}
       />
@@ -841,6 +849,14 @@ export const App = ({
       height={height}
       backgroundColor={C.bg}
       onMouseDrag={(event) => panes.dragTo(event.x)}
+      // links in descriptions and comments are real terminal hyperlinks; since the app takes the
+      // mouse, a click on one is opened here
+      onMouseDown={(event) => {
+        const url = renderer.getLinkAt(event.x, event.y);
+        if (url) {
+          openInBrowser(url);
+        }
+      }}
       onMouseUp={() => panes.setResizing(null)}
     >
       <Header

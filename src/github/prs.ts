@@ -25,6 +25,8 @@ export interface PR {
   number: number;
   title: string;
   author: string;
+  // how the author relates to the repo: MEMBER, CONTRIBUTOR, OWNER, …
+  authorAssociation: string;
   createdAt: string;
   updatedAt: string;
   headRefName: string;
@@ -53,7 +55,7 @@ export interface PR {
 
 const PR_FIELDS = `
   fragment PRFields on PullRequest {
-    id number title createdAt updatedAt headRefName headRefOid baseRefName isDraft
+    id number title createdAt updatedAt headRefName headRefOid baseRefName isDraft authorAssociation
     reviewDecision mergeable additions deletions changedFiles url body isCrossRepository
     repository { nameWithOwner }
     author { login }
@@ -72,6 +74,7 @@ const PR_FIELDS = `
 
 interface RawPR {
   id: string;
+  authorAssociation: string;
   number: number;
   title: string;
   createdAt: string;
@@ -120,6 +123,7 @@ const toPR = (p: RawPR): PR => {
   return {
     additions: p.additions,
     author: p.author?.login ?? "ghost",
+    authorAssociation: p.authorAssociation,
     baseRefName: p.baseRefName,
     body: p.body,
     changedFiles: p.changedFiles,

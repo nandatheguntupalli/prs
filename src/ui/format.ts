@@ -49,6 +49,15 @@ export const fit = (s: string, n: number) =>
 
 export const pad = (s: string, n: number) => fit(s, n).padEnd(n);
 
+// 1234 → "1.2k", 12345 → "12k"
+export const compact = (n: number) => {
+  if (n < 1000) {
+    return String(n);
+  }
+  const k = n / 1000;
+  return `${k < 10 ? k.toFixed(1).replace(/\.0$/u, "") : Math.round(k)}k`;
+};
+
 export const plural = (n: number, word: string) =>
   `${n} ${n === 1 ? word : `${word}s`}`;
 

@@ -43,6 +43,8 @@ In a repo, the queues are **All**, **Mine**, and **Review requested**. With `--a
 | `e` | open in your editor (see below) |
 | `o` | open in the browser |
 
+The details pane on the right has tabs, switched with `[` / `]` or a click: **Overview** (status, reviewers, stack, description), **Activity** (the conversation), **Commits**, **Checks**, and **Files Changed**. Links in descriptions and comments open in your browser when clicked.
+
 Merges and closes wait a few seconds before running, like Superhuman's undo send, so `z` can take one back. Quitting while one is pending runs it right away. The sidebar shows how far a branch is behind its base; **Update** appears when it is, unless the branch conflicts, which has to be fixed locally.
 
 ## Moving around
