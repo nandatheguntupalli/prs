@@ -16,11 +16,25 @@ export interface Cell {
   color: string;
 }
 
+export type NodeKind = "head" | "merge" | "commit";
+
+// the same row as lines and curves rather than characters, for drawing it as pixels
+export interface Geometry {
+  col: number;
+  kind: NodeKind;
+  // lanes with a line coming in from the row above / going on to the row below
+  above: boolean[];
+  below: boolean[];
+  links: Link[];
+  colors: string[];
+}
+
 export interface GraphRow {
   commit: Commit;
   // two cells per lane: the lane itself, then the gap to its right
   cells: Cell[];
   color: string;
+  geometry: Geometry;
 }
 
 // VS Code's graph palette
@@ -37,14 +51,20 @@ export const LANE_COLORS = [
 
 const BLANK = { ch: " ", color: "" };
 
-const nodeGlyph = (commit: Commit) => {
+const nodeKind = (commit: Commit): NodeKind => {
   if (commit.refs.some((r) => r.startsWith("HEAD"))) {
-    return "○";
+    return "head";
   }
-  return commit.parents.length > 1 ? "◉" : "●";
+  return commit.parents.length > 1 ? "merge" : "commit";
 };
 
-interface Link {
+const NODE_GLYPHS: Record<NodeKind, string> = {
+  commit: "●",
+  head: "○",
+  merge: "◉",
+};
+
+export interface Link {
   col: number;
   // the lane already existed above this row, so its vertical line runs through
   through: boolean;
@@ -107,7 +127,7 @@ const paintRow = (
       color: colorOf(link.col),
     };
   }
-  cells[col * 2] = { ch: nodeGlyph(commit), color: colorOf(col) };
+  cells[col * 2] = { ch: NODE_GLYPHS[nodeKind(commit)], color: colorOf(col) };
   return cells;
 };
 
@@ -157,6 +177,14 @@ export const layout = (commits: Commit[]): GraphRow[] => {
 
     const cells = paintRow(commit, col, links, above, lanes);
     const color = lanes.colors[col] ?? "";
+    const geometry: Geometry = {
+      above,
+      below: lanes.hashes.map((l) => l !== null),
+      col,
+      colors: [...lanes.colors],
+      kind: nodeKind(commit),
+      links,
+    };
 
     // drop lanes that have ended off the right edge
     while (lanes.hashes.length > 0 && lanes.hashes.at(-1) === null) {
@@ -164,6 +192,6 @@ export const layout = (commits: Commit[]): GraphRow[] => {
       lanes.colors.pop();
     }
 
-    return { cells, color, commit };
+    return { cells, color, commit, geometry };
   });
 };

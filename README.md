@@ -18,6 +18,7 @@ prs owner/repo        # or any repo
 prs --method rebase   # squash (default), merge, or rebase
 prs --delay 2         # seconds before a merge fires (default 4)
 prs --dry-run         # nothing is merged or approved
+prs --text-graph      # draw the graph with characters, even if the terminal can show images
 ```
 
 | key | list | diff |
@@ -44,6 +45,8 @@ The mouse works too: click a row, a tab, or the **Merge**, **Update**, and **Clo
 ## Graph
 
 The graph sits on the left, drawn like VS Code's: one row per commit, colored lanes, and the branch pill right next to its commit. Press `h` to move into it, `j`/`k` to walk the history, `⏎` to see a commit, and `l` to go back to the PRs. PR keys like `m` don't act while you're in the graph.
+
+In terminals that can show images (Ghostty, Kitty, WezTerm, and others with the Kitty graphics protocol or Sixel), the graph is drawn in pixels: smooth lines through the commit dots and rounded curves, like VS Code. Everywhere else it's drawn with characters. Pass `--text-graph` to always use characters.
 
 Run `prs` inside a clone and the graph reads that clone's history. Anywhere else, `prs` keeps a small bare clone (no file contents until you open a commit) in `~/.cache/prs`. Either way it fetches in the background.
 

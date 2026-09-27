@@ -18,6 +18,7 @@ const { values, positionals } = parseArgs({
     "dry-run": { type: "boolean" },
     help: { short: "h", type: "boolean" },
     method: { default: "squash", short: "m", type: "string" },
+    "text-graph": { type: "boolean" },
     version: { short: "v", type: "boolean" },
   },
 });
@@ -28,7 +29,7 @@ if (values.version) {
 }
 
 if (values.help) {
-  console.log(`prs [owner/repo] [--method squash|merge|rebase] [--delay seconds] [--dry-run]
+  console.log(`prs [owner/repo] [--method squash|merge|rebase] [--delay seconds] [--dry-run] [--text-graph]
 
 Keyboard-first PR inbox. Defaults to the repo in the current directory.`);
   process.exit(0);
@@ -69,6 +70,7 @@ createRoot(renderer).render(
   <App
     repo={repo}
     local={local}
+    textGraph={Boolean(values["text-graph"])}
     method={method}
     delay={Number(values.delay)}
     dryRun={dryRun.enabled}

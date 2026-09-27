@@ -16,8 +16,8 @@ import {
 import type { MergeMethod, PR } from "./gh.ts";
 import { showCommit } from "./git.ts";
 import type { Source } from "./git.ts";
-import { GraphView, useGraph } from "./graph-view.tsx";
-import type { GraphState } from "./graph-view.tsx";
+import { GraphView, useCellPixels, useGraph } from "./graph-view.tsx";
+import type { CellPixels, GraphState } from "./graph-view.tsx";
 import type { Commit } from "./graph.ts";
 import { useBehind, useDiff, usePendingAction } from "./hooks.ts";
 import type { DiffTarget, PendingKind } from "./hooks.ts";
@@ -635,6 +635,7 @@ const MainView = ({
   graph,
   graphCursor,
   onSelectCommit,
+  cell,
   pr,
   commit,
   diffLines,
@@ -649,6 +650,7 @@ const MainView = ({
   graph: GraphState;
   graphCursor: number;
   onSelectCommit: (i: number) => void;
+  cell: CellPixels | null;
   pr: PR | undefined;
   commit: Commit | undefined;
   diffLines: string[] | null;
@@ -680,6 +682,7 @@ const MainView = ({
           status={graph.status}
           cursor={graphCursor}
           focused={focus === "graph"}
+          cell={cell}
           width={graphW}
           height={bodyH + 1}
           onSelect={onSelectCommit}
@@ -696,10 +699,13 @@ export const App = ({
   method,
   delay,
   dryRun,
+  textGraph,
   onQuit,
 }: {
   repo: string;
   local: string | null;
+  // draw the graph with characters even when the terminal can show images
+  textGraph: boolean;
   method: MergeMethod;
   delay: number;
   dryRun: boolean;
@@ -755,6 +761,7 @@ export const App = ({
 
   const inGraph = graphPane && focus === "graph";
   const graph = useGraph(repo, local, graphPane);
+  const cell = useCellPixels(graphPane && !textGraph);
   const commits = graph.rows ?? [];
 
   const all = prs ?? [];
@@ -952,6 +959,7 @@ export const App = ({
       graph={graph}
       graphCursor={graphCursor}
       onSelectCommit={selectCommit}
+      cell={cell}
       pr={pr}
       commit={commit}
       diffLines={diffLines}

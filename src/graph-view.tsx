@@ -1,11 +1,14 @@
-import { TextAttributes } from "@opentui/core";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { NativeImage, TextAttributes } from "@opentui/core";
+import type { ImageRenderProtocol } from "@opentui/core";
+import { useRenderer } from "@opentui/react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 
 import { errorMessage } from "./gh.ts";
 import { ensureCache, fetchLatest, loadCommits } from "./git.ts";
 import type { Source } from "./git.ts";
 import { layout } from "./graph.ts";
 import type { Cell, Commit, GraphRow } from "./graph.ts";
+import { drawGraph } from "./raster.ts";
 import { C } from "./theme.ts";
 
 const { BOLD } = TextAttributes;
@@ -148,21 +151,20 @@ const pillText = (pill: Badge | null, room: number) => {
 // graph, then the branch pill right next to the commit, then subject and author
 const CommitRow = ({
   row,
+  cells,
   selected,
-  graphW,
   width,
   onSelect,
 }: {
   row: GraphRow;
+  // the text-drawn lanes; empty when the graph is drawn as an image beside the rows
+  cells: Cell[];
   selected: boolean;
-  graphW: number;
   width: number;
   onSelect: () => void;
 }) => {
   const { commit } = row;
   const isHead = commit.refs.some((r) => r.startsWith("HEAD"));
-  // like VS Code, the text starts right after this row's own lanes
-  const cells = trimCells(row.cells).slice(0, graphW);
   const room = Math.max(8, width - cells.length - 1);
   const pill = pillText(badge(commit.refs), Math.floor(room / 2));
   const textW = Math.max(4, room - pill.length - (pill ? 1 : 0));
@@ -201,11 +203,101 @@ const CommitRow = ({
   );
 };
 
+export interface CellPixels {
+  w: number;
+  h: number;
+  protocol: ImageRenderProtocol;
+}
+
+// the terminal's cell size in pixels, when it can show images (kitty graphics or sixel)
+export const useCellPixels = (enabled: boolean): CellPixels | null => {
+  const renderer = useRenderer();
+  const [cell, setCell] = useState<CellPixels | null>(null);
+
+  // the renderer learns the pixel size asynchronously and again after resizes, without an event
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+    const check = () => {
+      const caps = renderer.capabilities;
+      const res = renderer.resolution;
+      const protocol: ImageRenderProtocol = caps?.kitty_graphics
+        ? "kitty"
+        : "sixel";
+      const next =
+        (caps?.kitty_graphics || caps?.sixel) &&
+        res &&
+        renderer.terminalWidth > 0
+          ? {
+              h: res.height / renderer.terminalHeight,
+              protocol,
+              w: res.width / renderer.terminalWidth,
+            }
+          : null;
+      setCell((prev) =>
+        prev?.w === next?.w &&
+        prev?.h === next?.h &&
+        prev?.protocol === next?.protocol
+          ? prev
+          : next
+      );
+    };
+    check();
+    const timer = setInterval(check, 300);
+    return () => clearInterval(timer);
+  }, [enabled, renderer]);
+
+  return enabled ? cell : null;
+};
+
+const PixelGraph = ({
+  rows,
+  start,
+  count,
+  cols,
+  selected,
+  cell,
+}: {
+  rows: GraphRow[];
+  start: number;
+  count: number;
+  cols: number;
+  selected: number;
+  cell: CellPixels;
+}) => {
+  const image = useMemo(() => {
+    const px = drawGraph(rows.slice(start, start + count), {
+      bg: C.bg,
+      cellH: cell.h,
+      cellW: cell.w,
+      cols,
+      selected,
+      selectedBg: C.selected,
+    });
+    return NativeImage.fromRgba(px.data, px.width, px.height);
+  }, [rows, start, count, cols, selected, cell]);
+
+  // the image renderable keeps its own reference, so ours can go when it's replaced
+  useEffect(() => () => image.dispose(), [image]);
+
+  return (
+    <image
+      source={image}
+      fit="fill"
+      protocol={cell.protocol}
+      width={cols}
+      height={Math.min(count, rows.length - start)}
+    />
+  );
+};
+
 export const GraphView = ({
   rows,
   status,
   cursor,
   focused,
+  cell,
   width,
   height,
   onSelect,
@@ -214,6 +306,8 @@ export const GraphView = ({
   status: string;
   cursor: number;
   focused: boolean;
+  // set when the terminal can show images; the graph is then drawn as pixels
+  cell: CellPixels | null;
   width: number;
   height: number;
   onSelect: (i: number) => void;
@@ -245,14 +339,56 @@ export const GraphView = ({
   }
   // inside the pane: left padding and the right border
   const inner = width - 2;
-  const widest = Math.max(...rows.map((r) => r.cells.length));
-  // wide graphs get clipped so the subjects stay readable
-  const graphW = Math.min(widest, Math.floor(inner * 0.4));
   const listH = height - 1;
   const start = Math.max(
     0,
     Math.min(cursor - Math.floor(listH / 2), rows.length - listH)
   );
+  const visible = rows.slice(start, start + listH);
+  // wide graphs get clipped so the subjects stay readable
+  const maxW = Math.floor(inner * 0.4);
+  const selected = focused ? cursor - start : -1;
+
+  if (cell) {
+    const cols = Math.min(
+      maxW,
+      Math.max(...visible.map((r) => trimCells(r.cells).length))
+    );
+    return (
+      <box
+        width={width}
+        flexDirection="column"
+        border={["right"]}
+        borderColor={C.border}
+        paddingLeft={1}
+      >
+        {header}
+        <box flexDirection="row">
+          <PixelGraph
+            rows={rows}
+            start={start}
+            count={listH}
+            cols={cols}
+            selected={selected}
+            cell={cell}
+          />
+          <box flexDirection="column" flexGrow={1}>
+            {visible.map((row, i) => (
+              <CommitRow
+                key={row.commit.hash}
+                row={row}
+                cells={[]}
+                selected={i === selected}
+                width={inner - cols}
+                onSelect={() => onSelect(start + i)}
+              />
+            ))}
+          </box>
+        </box>
+      </box>
+    );
+  }
+
   return (
     <box
       width={width}
@@ -262,12 +398,13 @@ export const GraphView = ({
       paddingLeft={1}
     >
       {header}
-      {rows.slice(start, start + listH).map((row, i) => (
+      {visible.map((row, i) => (
         <CommitRow
           key={row.commit.hash}
           row={row}
-          selected={focused && start + i === cursor}
-          graphW={graphW}
+          // like VS Code, the text starts right after this row's own lanes
+          cells={trimCells(row.cells).slice(0, maxW)}
+          selected={i === selected}
           width={inner}
           onSelect={() => onSelect(start + i)}
         />
