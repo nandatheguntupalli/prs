@@ -127,6 +127,8 @@ export const App = ({
   const [detailTab, setDetailTab] = useState<DetailTab>("overview");
   const [diffMoved, setDiffMoved] = useState<number | null>(null);
   const [rangeStart, setRangeStart] = useState<number | null>(null);
+  const [showTests, setShowTests] = useState(false);
+  const [expandFiles, setExpandFiles] = useState(false);
   const [checksCursor, setChecksCursor] = useState(0);
   const [jobCheck, setJobCheck] = useState<Check | null>(null);
   const [logCursor, setLogCursor] = useState<number | null>(null);
@@ -146,12 +148,15 @@ export const App = ({
   const {
     cursor: diffCursor,
     diff,
+    hiddenTests,
     rows,
+    shown,
     threads,
   } = useDiffData({
     moved: diffMoved,
     pr,
     screen,
+    showTests,
     width,
   });
   const { checks, log, logAt, steps } = useChecksData({
@@ -451,6 +456,12 @@ export const App = ({
     diffBottom: () => setDiffMoved(rows.length - 1),
     diffTop: () => setDiffMoved(0),
     edit,
+    expandFiles: () => {
+      // the first press just shows the tab, expanded
+      setExpandFiles((e) => detailTab !== "files" || !e);
+      setDetailTab("files");
+      setSidebar(true);
+    },
     files: () => setModal({ kind: "files" }),
     filter: () => setFiltering(true),
     half,
@@ -510,6 +521,11 @@ export const App = ({
     toggleDraft: whenOpen(toggleDraft),
     toggleRange: () => setRangeStart((r) => (r === null ? diffCursor : null)),
     toggleSidebar: () => setSidebar((s) => !s),
+    toggleTests: () => {
+      setShowTests((s) => !s);
+      setDiffMoved(null);
+      setRangeStart(null);
+    },
     top: () => setCursor(0),
     undo: pending.undo,
     update: whenOpen(update),
@@ -551,7 +567,8 @@ export const App = ({
         <DiffView
           title={title}
           subtitle={diffSubtitle(
-            diff.value,
+            shown ?? null,
+            hiddenTests,
             threads.value?.length ?? 0,
             fileAt(rows, diffCursor),
             rangeStart !== null
@@ -562,6 +579,11 @@ export const App = ({
           width={width}
           height={bodyH}
           loading={!diff.loaded}
+          empty={
+            hiddenTests
+              ? "Only tests changed in this PR. T shows them."
+              : "No changes."
+          }
         />
       );
     }
@@ -608,6 +630,7 @@ export const App = ({
         handleGrab={panes.setResizing}
         detailTab={detailTab}
         handleDetailTab={setDetailTab}
+        expandFiles={expandFiles}
         width={width}
         height={bodyH}
       />
@@ -667,7 +690,7 @@ export const App = ({
         commands={commands}
         screen={screen}
         themeChoice={theme.choice}
-        files={diff.value?.files ?? []}
+        files={shown?.files ?? []}
         onClose={() => setModal(null)}
         onPreview={(choice) => theme.setPreview(choice)}
         onTheme={(choice) => {

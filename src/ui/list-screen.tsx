@@ -79,6 +79,7 @@ export interface ListProps {
   handleGrab: (pane: keyof PaneSizes) => void;
   detailTab: DetailTab;
   handleDetailTab: (tab: DetailTab) => void;
+  expandFiles: boolean;
   width: number;
   height: number;
 }
@@ -120,6 +121,7 @@ export const ListScreen = (p: ListProps) => {
           tab={p.detailTab}
           onTab={p.handleDetailTab}
           actions={p.actions}
+          expandFiles={p.expandFiles}
         />
       ) : null}
     </box>

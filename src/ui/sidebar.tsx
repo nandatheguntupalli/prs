@@ -1,10 +1,14 @@
+import { useState } from "react";
+
 import { listChecks } from "../github/checks.ts";
 import { listActivity, listCommits, listFiles } from "../github/details.ts";
+import type { FileItem } from "../github/details.ts";
 import type { PR } from "../github/prs.ts";
 import { useLoader } from "../hooks/use-loader.ts";
 import { prKey } from "../stacks.ts";
 import type { StackPlace } from "../stacks.ts";
 import { C } from "../theme.ts";
+import { isTestPath } from "./diff-model.ts";
 import {
   age,
   checkIcon,
@@ -455,40 +459,133 @@ const FILE_STATUS: Record<string, { mark: string; color: () => string }> = {
   renamed: { color: () => C.blue, mark: "R" },
 };
 
-const Files = ({ pr, width }: { pr: PR; width: number }) => {
-  const files = useLoader(`files:${prKey(pr)}:${pr.headRefOid}`, () =>
-    listFiles(pr)
-  );
-  if (!files.value) {
-    return <Loading error={files.error} />;
+// long patches get cut off here; the diff screen has the rest
+const PATCH_LINES = 200;
+
+const PatchLines = ({ file, width }: { file: FileItem; width: number }) => {
+  if (file.patch === null) {
+    return <text fg={C.faint}>{"  No preview for this file."}</text>;
   }
+  const lines = file.patch.replaceAll("\t", "  ").split("\n");
+  const more = lines.length - PATCH_LINES;
   return (
-    <box flexDirection="column">
-      {files.value.map((f) => {
-        const st = FILE_STATUS[f.status] ?? { color: () => C.dim, mark: "·" };
-        const stats = `+${f.additions} −${f.deletions}`;
+    <box flexDirection="column" marginBottom={1}>
+      {lines.slice(0, PATCH_LINES).map((line, i) => {
+        const [sign] = line;
+        const hunk = line.startsWith("@@");
+        let { bg } = C;
+        let fg = C.dim;
+        if (hunk) {
+          fg = C.cyan;
+        } else if (sign === "+") {
+          bg = C.addBg;
+          fg = C.text;
+        } else if (sign === "-") {
+          bg = C.delBg;
+          fg = C.text;
+        }
         return (
-          <box
-            key={f.path}
-            height={1}
-            flexDirection="row"
-            justifyContent="space-between"
-          >
-            <text wrapMode="none">
-              <span fg={st.color()}>{`${st.mark} `}</span>
-              <span fg={C.text}>
-                {fit(f.path, Math.max(8, width - stats.length - 4))}
-              </span>
-            </text>
-            <text wrapMode="none">
-              <span fg={C.green}>{`+${f.additions}`}</span>
-              <span fg={C.red}>{` −${f.deletions}`}</span>
+          // oxlint-disable-next-line react/no-array-index-key -- lines are positional
+          <box key={i} height={1} backgroundColor={bg}>
+            <text wrapMode="none" fg={fg}>
+              {fit(hunk ? line.replace(/ @@.*$/u, " @@") : line, width)}
             </text>
           </box>
         );
       })}
+      {more > 0 ? (
+        <text
+          fg={C.faint}
+        >{`  ${plural(more, "more line")}, ⏎ opens the diff`}</text>
+      ) : null}
+    </box>
+  );
+};
+
+const FileRow = ({
+  file,
+  open,
+  width,
+  onToggle,
+}: {
+  file: FileItem;
+  open: boolean;
+  width: number;
+  onToggle: () => void;
+}) => {
+  const st = FILE_STATUS[file.status] ?? { color: () => C.dim, mark: "·" };
+  const stats = `+${file.additions} −${file.deletions}`;
+  return (
+    <box flexDirection="column">
+      <box
+        height={1}
+        flexDirection="row"
+        justifyContent="space-between"
+        backgroundColor={open ? C.panel : C.bg}
+        onMouseDown={onToggle}
+      >
+        <text wrapMode="none">
+          <span fg={C.faint}>{open ? "▾ " : "▸ "}</span>
+          <span fg={st.color()}>{`${st.mark} `}</span>
+          <span fg={C.text}>
+            {fit(file.path, Math.max(8, width - stats.length - 6))}
+          </span>
+        </text>
+        <text wrapMode="none">
+          <span fg={C.green}>{`+${file.additions}`}</span>
+          <span fg={C.red}>{` −${file.deletions}`}</span>
+        </text>
+      </box>
+      {open ? <PatchLines file={file} width={width} /> : null}
+    </box>
+  );
+};
+
+const Files = ({
+  pr,
+  width,
+  expandAll,
+}: {
+  pr: PR;
+  width: number;
+  expandAll: boolean;
+}) => {
+  const files = useLoader(`files:${prKey(pr)}:${pr.headRefOid}`, () =>
+    listFiles(pr)
+  );
+  // files flipped away from the expand-all state
+  const [flipped, setFlipped] = useState<Set<string>>(new Set());
+  if (!files.value) {
+    return <Loading error={files.error} />;
+  }
+  const toggle = (path: string) =>
+    setFlipped((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(path)) {
+        next.add(path);
+      }
+      return next;
+    });
+  const row = (f: FileItem) => (
+    <FileRow
+      key={f.path}
+      file={f}
+      open={expandAll !== flipped.has(f.path)}
+      width={width}
+      onToggle={() => toggle(f.path)}
+    />
+  );
+  const code = files.value.filter((f) => !isTestPath(f.path));
+  const tests = files.value.filter((f) => isTestPath(f.path));
+  return (
+    <box flexDirection="column">
+      {code.map(row)}
+      {tests.length > 0 ? (
+        <SectionTitle>{`Tests · ${tests.length}`}</SectionTitle>
+      ) : null}
+      {tests.map(row)}
       <text fg={C.faint} marginTop={1}>
-        ⏎ opens the diff
+        click a file to see its changes · E expands all · ⏎ opens the diff
       </text>
     </box>
   );
@@ -503,6 +600,7 @@ const TabContent = ({
   stack,
   mergeCount,
   actions,
+  expandFiles,
 }: {
   tab: DetailTab;
   pr: PR;
@@ -512,6 +610,7 @@ const TabContent = ({
   stack: StackPlace | undefined;
   mergeCount: number;
   actions: PRActions;
+  expandFiles: boolean;
 }) => {
   switch (tab) {
     case "activity": {
@@ -524,7 +623,9 @@ const TabContent = ({
       return <ChecksTab pr={pr} width={width} />;
     }
     case "files": {
-      return <Files pr={pr} width={width} />;
+      return (
+        <Files key={prKey(pr)} pr={pr} width={width} expandAll={expandFiles} />
+      );
     }
     default: {
       return (
@@ -552,6 +653,7 @@ export const Sidebar = ({
   tab,
   onTab,
   actions,
+  expandFiles,
 }: {
   pr: PR;
   status: Status;
@@ -563,6 +665,7 @@ export const Sidebar = ({
   tab: DetailTab;
   onTab: (tab: DetailTab) => void;
   actions: PRActions;
+  expandFiles: boolean;
 }) => {
   const inner = width - 3;
   return (
@@ -591,6 +694,7 @@ export const Sidebar = ({
           stack={stack}
           mergeCount={mergeCount}
           actions={actions}
+          expandFiles={expandFiles}
         />
       </scrollbox>
     </box>
