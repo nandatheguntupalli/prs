@@ -258,6 +258,8 @@ const PixelGraph = ({
   cols,
   selected,
   cell,
+  bg,
+  selectedBg,
 }: {
   rows: GraphRow[];
   start: number;
@@ -265,18 +267,21 @@ const PixelGraph = ({
   cols: number;
   selected: number;
   cell: CellPixels;
+  // passed in (rather than read from the theme) so a theme change redraws the image
+  bg: string;
+  selectedBg: string;
 }) => {
   const image = useMemo(() => {
     const px = drawGraph(rows.slice(start, start + count), {
-      bg: C.bg,
+      bg,
       cellH: cell.h,
       cellW: cell.w,
       cols,
       selected,
-      selectedBg: C.selected,
+      selectedBg,
     });
     return NativeImage.fromRgba(px.data, px.width, px.height);
-  }, [rows, start, count, cols, selected, cell]);
+  }, [rows, start, count, cols, selected, cell, bg, selectedBg]);
 
   // the image renderable keeps its own reference, so ours can go when it's replaced
   useEffect(() => () => image.dispose(), [image]);
@@ -359,6 +364,8 @@ export const GraphView = ({
             cols={cols}
             selected={selected}
             cell={cell}
+            bg={C.bg}
+            selectedBg={C.selected}
           />
           <box flexDirection="column" flexGrow={1}>
             {visible.map((row, i) => (

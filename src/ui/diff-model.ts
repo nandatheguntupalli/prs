@@ -1,0 +1,209 @@
+// Turns a unified diff (and any review threads on it) into the rows the diff view draws.
+
+import type { Side, Thread } from "../github/comments.ts";
+
+export type Row =
+  | { kind: "meta"; text: string }
+  | { kind: "file"; path: string; additions: number; deletions: number }
+  | { kind: "hunk"; text: string }
+  | {
+      kind: "line";
+      path: string;
+      sign: "+" | "-" | " ";
+      text: string;
+      old: number | null;
+      new: number | null;
+    }
+  | {
+      kind: "comment";
+      thread: Thread;
+      // each comment is a heading row (author, age), then its body rows
+      part: "head" | "body";
+      // the thread's very first row, where n / p land
+      first: boolean;
+      text: string;
+      author: string;
+      createdAt: string;
+      outdated: boolean;
+    };
+
+export interface ParsedDiff {
+  rows: Row[];
+  files: { path: string; additions: number; deletions: number }[];
+}
+
+const pathOf = (header: string) => {
+  // "diff --git a/src/x.ts b/src/x.ts" → "src/x.ts"
+  const match = / b\/(?<path>.+)$/u.exec(header);
+  return match?.groups?.path ?? header;
+};
+
+const HUNK = /^@@ -(?<old>\d+)(?:,\d+)? \+(?<new>\d+)(?:,\d+)? @@/u;
+
+// the lines that come before a file's first hunk and aren't worth showing
+const NOISE =
+  /^(?:index |--- |\+\+\+ |similarity index|rename from|rename to|new file mode|deleted file mode|old mode|new mode)/u;
+
+export const parseDiff = (text: string): ParsedDiff => {
+  const rows: Row[] = [];
+  const files: ParsedDiff["files"] = [];
+  let path = "";
+  let oldLine = 0;
+  let newLine = 0;
+  let file: { path: string; additions: number; deletions: number } | null =
+    null;
+
+  for (const raw of text.replaceAll("\t", "  ").split("\n")) {
+    if (raw.startsWith("diff --git")) {
+      path = pathOf(raw);
+      file = { additions: 0, deletions: 0, path };
+      files.push(file);
+      rows.push({ kind: "file", ...file });
+      continue;
+    }
+    const hunk = HUNK.exec(raw);
+    if (hunk) {
+      oldLine = Number(hunk.groups?.old);
+      newLine = Number(hunk.groups?.new);
+      rows.push({ kind: "hunk", text: raw });
+      continue;
+    }
+    if (!file || NOISE.test(raw)) {
+      // before the first file, a commit diff has its message; keep that, drop the rest
+      if (!file) {
+        rows.push({ kind: "meta", text: raw });
+      }
+      continue;
+    }
+    const [sign] = raw;
+    if (sign === "+") {
+      file.additions += 1;
+      rows.push({
+        kind: "line",
+        new: newLine,
+        old: null,
+        path,
+        sign: "+",
+        text: raw.slice(1),
+      });
+      newLine += 1;
+    } else if (sign === "-") {
+      file.deletions += 1;
+      rows.push({
+        kind: "line",
+        new: null,
+        old: oldLine,
+        path,
+        sign: "-",
+        text: raw.slice(1),
+      });
+      oldLine += 1;
+    } else if (sign === " ") {
+      rows.push({
+        kind: "line",
+        new: newLine,
+        old: oldLine,
+        path,
+        sign: " ",
+        text: raw.slice(1),
+      });
+      oldLine += 1;
+      newLine += 1;
+    } else if (raw) {
+      rows.push({ kind: "meta", text: raw });
+    }
+  }
+  // keep the header counts in step with what was tallied
+  for (const row of rows) {
+    if (row.kind === "file") {
+      const f = files.find((x) => x.path === row.path);
+      row.additions = f?.additions ?? 0;
+      row.deletions = f?.deletions ?? 0;
+    }
+  }
+  return { files, rows };
+};
+
+// the line a comment is anchored on: the new version for RIGHT, the old for LEFT
+export const anchorOf = (
+  row: Row
+): { path: string; line: number; side: Side } | null => {
+  if (row.kind !== "line") {
+    return null;
+  }
+  if (row.sign === "-" && row.old !== null) {
+    return { line: row.old, path: row.path, side: "LEFT" };
+  }
+  return row.new === null
+    ? null
+    : { line: row.new, path: row.path, side: "RIGHT" };
+};
+
+const wrap = (text: string, width: number) => {
+  const out: string[] = [];
+  for (const para of text.replaceAll("\r", "").split("\n")) {
+    let line = "";
+    for (const word of para.split(" ")) {
+      if (line && line.length + word.length + 1 > width) {
+        out.push(line);
+        line = word;
+      } else {
+        line = line ? `${line} ${word}` : word;
+      }
+    }
+    out.push(line);
+  }
+  return out;
+};
+
+const threadRows = (thread: Thread, width: number, outdated: boolean): Row[] =>
+  thread.comments.flatMap((c, i): Row[] => {
+    const base = {
+      author: c.author,
+      createdAt: c.createdAt,
+      kind: "comment" as const,
+      outdated,
+      thread,
+    };
+    return [
+      { ...base, first: i === 0, part: "head", text: "" },
+      ...wrap(c.body, Math.max(20, width)).map((text) => ({
+        ...base,
+        first: false,
+        part: "body" as const,
+        text,
+      })),
+    ];
+  });
+
+// the diff with each thread placed under the line it's on; threads whose line has changed
+// since ("outdated") go under their file's header instead
+export const withThreads = (
+  rows: Row[],
+  threads: Thread[],
+  width: number
+): Row[] => {
+  const byAnchor = new Map<string, Thread[]>();
+  const outdated = new Map<string, Thread[]>();
+  for (const t of threads) {
+    if (t.line === null) {
+      outdated.set(t.path, [...(outdated.get(t.path) ?? []), t]);
+    } else {
+      const key = `${t.path}:${t.side}:${t.line}`;
+      byAnchor.set(key, [...(byAnchor.get(key) ?? []), t]);
+    }
+  }
+  return rows.flatMap((row): Row[] => {
+    if (row.kind === "file") {
+      const old = outdated.get(row.path) ?? [];
+      return [row, ...old.flatMap((t) => threadRows(t, width, true))];
+    }
+    const anchor = anchorOf(row);
+    const here = anchor
+      ? byAnchor.get(`${anchor.path}:${anchor.side}:${anchor.line}`)
+      : undefined;
+    return here
+      ? [row, ...here.flatMap((t) => threadRows(t, width, false))]
+      : [row];
+  });
+};

@@ -1,637 +1,92 @@
-import { TextAttributes } from "@opentui/core";
 import type { KeyEvent } from "@opentui/core";
-import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import {
+  useKeyboard,
+  useRenderer,
+  useTerminalDimensions,
+} from "@opentui/react";
+import { useEffect, useEffectEvent, useState } from "react";
 import type { ReactNode } from "react";
 
+import { buildCommands, HINTS } from "./app-commands.ts";
 import {
-  approve,
-  errorMessage,
-  getDiff,
-  listPRs,
-  openInBrowser,
+  graphCells,
+  sidebarCells,
+  useChecksData,
+  useDiffData,
+  usePaneSizes,
+  useSelection,
+  useTheme,
+} from "./app-hooks.ts";
+import type { Resizing } from "./app-hooks.ts";
+import { helpSections, hintsFor, keymapFor } from "./commands.ts";
+import type { Cmd, Screen } from "./commands.ts";
+import type { Config } from "./config.ts";
+import { saveConfig } from "./config.ts";
+import { isErrorLine } from "./github/checks.ts";
+import type { Check } from "./github/checks.ts";
+import { errorMessage, openInBrowser, viewer } from "./github/client.ts";
+import { addComment, reply } from "./github/comments.ts";
+import {
+  setDraft,
+  setLabels,
+  submitReview,
   updateBranch,
-  viewer,
-} from "./gh.ts";
-import type { MergeMethod, PR, UpdateMethod } from "./gh.ts";
-import { showCommit } from "./git.ts";
-import type { Source } from "./git.ts";
+} from "./github/prs.ts";
+import type { MergeMethod, PR, UpdateMethod } from "./github/prs.ts";
 import { GraphView, useCellPixels, useGraph } from "./graph-view.tsx";
 import type { CellPixels, GraphState } from "./graph-view.tsx";
 import type { Commit } from "./graph.ts";
-import { useBehind, useDiff, usePendingAction } from "./hooks.ts";
-import type { DiffTarget, PendingKind } from "./hooks.ts";
-import { clampSize, DEFAULT_SIZES, saveSizes } from "./layout.ts";
+import { useBehind, useLoader, usePendingAction, useQueues } from "./hooks.ts";
+import type { PendingKind } from "./hooks.ts";
 import type { PaneSizes } from "./layout.ts";
-import { findStacks, groupStacks, mergePlan } from "./stacks.ts";
+import { copyText, editorCommand, runInTerminal } from "./local.ts";
+import { mergePlan, prKey } from "./stacks.ts";
 import type { StackPlace } from "./stacks.ts";
 import { C } from "./theme.ts";
+import type { ThemeChoice } from "./theme.ts";
+import { ChecksView, JobView } from "./ui/checks.tsx";
+import { Footer, Header, TabBar } from "./ui/chrome.tsx";
+import type { Toast } from "./ui/chrome.tsx";
+import { anchorOf } from "./ui/diff-model.ts";
+import type { ParsedDiff } from "./ui/diff-model.ts";
+import { DiffView, fileAt, jump } from "./ui/diff.tsx";
+import { fit, plural } from "./ui/format.ts";
+import { keyId, sequence } from "./ui/keys.ts";
+import type { Action } from "./ui/keys.ts";
+import {
+  CommandPalette,
+  ComposeModal,
+  CopyModal,
+  FilesModal,
+  HelpModal,
+  LabelsModal,
+  ReviewModal,
+  ThemeModal,
+} from "./ui/modals.tsx";
+import { PRTable, pageSize } from "./ui/pr-list.tsx";
+import { BOLD, Centered } from "./ui/primitives.tsx";
+import { Sidebar } from "./ui/sidebar.tsx";
+import type { PRActions } from "./ui/sidebar.tsx";
 
-const { BOLD } = TextAttributes;
-
-type Tab = "all" | "mine" | "review";
 type Focus = "prs" | "graph";
-const TABS: { id: Tab; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "mine", label: "Mine" },
-  { id: "review", label: "Review requested" },
-];
 
-interface Toast {
-  text: string;
-  color: string;
-}
-interface Status {
-  color: string;
-  label: string;
-}
-
-const MINUTE = 60;
-const HOUR = 3600;
-const DAY = 86_400;
-const MONTH = DAY * 30;
-
-const age = (iso: string) => {
-  const s = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (s < HOUR) {
-    return `${Math.max(1, Math.floor(s / MINUTE))}m`;
-  }
-  if (s < DAY) {
-    return `${Math.floor(s / HOUR)}h`;
-  }
-  if (s < MONTH) {
-    return `${Math.floor(s / DAY)}d`;
-  }
-  return `${Math.floor(s / MONTH)}mo`;
-};
-
-const pad = (s: string, n: number) =>
-  s.length > n ? `${s.slice(0, Math.max(0, n - 1))}…` : s.padEnd(n);
-
-const CHECKS: Record<PR["checks"], Status & { icon: string }> = {
-  fail: { color: C.red, icon: "●", label: "Checks failing" },
-  none: { color: C.faint, icon: "·", label: "No checks" },
-  pass: { color: C.green, icon: "●", label: "Checks passing" },
-  pending: { color: C.yellow, icon: "◌", label: "Checks running" },
-};
-
-const REVIEWS: Record<string, Status & { short: string }> = {
-  APPROVED: { color: C.green, label: "Approved", short: "approved" },
-  CHANGES_REQUESTED: {
-    color: C.red,
-    label: "Changes requested",
-    short: "changes",
-  },
-  REVIEW_REQUIRED: {
-    color: C.yellow,
-    label: "Review required",
-    short: "review",
-  },
-};
-
-const review = (pr: PR): Status & { short: string } => {
-  if (pr.mergeable === "CONFLICTING") {
-    return { color: C.red, label: "Merge conflicts", short: "conflict" };
-  }
-  if (pr.isDraft) {
-    return { color: C.dim, label: "Draft", short: "draft" };
-  }
-  return (
-    REVIEWS[pr.reviewDecision] ?? {
-      color: C.dim,
-      label: "No review required",
-      short: "",
-    }
-  );
-};
-
-const diffColor = (line: string) => {
-  if (line.startsWith("diff --git")) {
-    return { attributes: BOLD, fg: C.accent };
-  }
-  if (
-    line.startsWith("+++") ||
-    line.startsWith("---") ||
-    line.startsWith("index ")
-  ) {
-    return { fg: C.faint };
-  }
-  if (line.startsWith("@@")) {
-    return { fg: C.cyan };
-  }
-  if (line.startsWith("+")) {
-    return { fg: C.green };
-  }
-  if (line.startsWith("-")) {
-    return { fg: C.red };
-  }
-  return { fg: C.text };
-};
-
-// PR bodies are full of bot badges and HTML; keep just the readable text
-const cleanBody = (body: string) => {
-  const text = (body ?? "")
-    .replaceAll("\r", "")
-    .replaceAll(/<!--[\s\S]*?-->/gu, "")
-    .replaceAll(/<[^>]+>/gu, "")
-    .replaceAll("\t", "  ")
-    .replaceAll(/\n{3,}/gu, "\n\n")
-    .trim();
-  return text || "No description.";
-};
-
-// keys that OpenTUI reports by name; everything else is matched by the character typed
-const NAMED_KEYS = new Set([
-  "down",
-  "escape",
-  "left",
-  "pagedown",
-  "pageup",
-  "return",
-  "right",
-  "tab",
-  "up",
-]);
-
-const keyId = (key: KeyEvent) => {
-  if (key.ctrl) {
-    return `ctrl+${key.name}`;
-  }
-  if (NAMED_KEYS.has(key.name)) {
-    return key.shift ? `shift+${key.name}` : key.name;
-  }
-  return key.sequence;
-};
-
-type Action = () => unknown;
-const bind = (keys: string[], action: Action) =>
-  keys.map((k) => [k, action] as const);
-
-const Button = ({
-  label,
-  color,
-  onPress,
-}: {
-  label: string;
-  color: string;
-  onPress: Action;
-}) => (
-  <box
-    border
-    borderStyle="rounded"
-    borderColor={color}
-    paddingLeft={1}
-    paddingRight={1}
-    height={3}
-    onMouseDown={onPress}
-  >
-    <text fg={color} attributes={BOLD}>
-      {label}
-    </text>
-  </box>
-);
-
-const BehindLine = ({ pr, behind }: { pr: PR; behind: number | undefined }) => {
-  if (behind === undefined) {
-    return <text fg={C.faint}>… Checking {pr.baseRefName}</text>;
-  }
-  if (behind < 0) {
-    return null;
-  }
-  if (behind === 0) {
-    return <text fg={C.dim}>✓ Up to date with {pr.baseRefName}</text>;
-  }
-  return (
-    <text fg={C.yellow}>
-      ↓ {behind} {behind === 1 ? "commit" : "commits"} behind {pr.baseRefName}
-    </text>
-  );
-};
-
-interface PRActions {
-  handleMerge: Action;
-  handleApprove: Action;
-  handleUpdate: Action;
-  handleClose: Action;
-  handleOpen: Action;
-}
-
-// the PR's whole stack, top first; everything from it down merges with it
-const StackList = ({
-  pr,
-  place,
-  width,
-}: {
-  pr: PR;
-  place: StackPlace;
-  width: number;
-}) => {
-  const { members, native } = place.stack;
-  return (
-    <box flexDirection="column" marginTop={1}>
-      <text fg={C.dim}>
-        <span fg={C.blue}>Stack</span> · {members.length} PRs
-        {native === null ? "" : ` · #${native} on GitHub`}
-      </text>
-      {members.toReversed().map((member, i) => {
-        const index = members.length - 1 - i;
-        const current = member.number === pr.number;
-        return (
-          <text key={member.number} wrapMode="none" truncate>
-            <span fg={C.blue}>{current ? "● " : "○ "}</span>
-            <span
-              fg={index <= place.index ? C.text : C.faint}
-              attributes={current ? BOLD : 0}
-            >
-              {pad(`#${member.number} ${member.title}`, width - 5).trimEnd()}
-            </span>
-          </text>
-        );
-      })}
-    </box>
-  );
-};
-
-const Sidebar = ({
-  pr,
-  width,
-  behind,
-  stack,
-  mergeCount,
-  actions,
-}: {
-  pr: PR;
-  width: number;
-  behind: number | undefined;
-  stack: StackPlace | undefined;
-  // how many PRs merging this one takes: it and everything below it in its stack
-  mergeCount: number;
-  actions: PRActions;
-}) => {
-  const ci = CHECKS[pr.checks];
-  const rv = review(pr);
-  return (
-    <box
-      width={width}
-      flexDirection="column"
-      paddingLeft={2}
-      paddingRight={1}
-      overflow="hidden"
-    >
-      {/* the description can be huge, so only it may shrink; everything above keeps its height */}
-      <box flexDirection="column" flexShrink={0}>
-        <text fg={C.text} attributes={BOLD} wrapMode="word">
-          {pr.title}
-        </text>
-        <text fg={C.dim} marginTop={1} wrapMode="none" truncate>
-          <span fg={C.accent}>#{pr.number}</span> ·{" "}
-          <span fg={C.blue}>{pr.author}</span> · {age(pr.createdAt)} ago
-        </text>
-        <text fg={C.dim} wrapMode="none" truncate>
-          {pr.baseRefName} ← {pr.headRefName}
-        </text>
-
-        <box flexDirection="column" marginTop={1}>
-          <text fg={ci.color}>
-            {ci.icon} {ci.label}
-          </text>
-          <text fg={rv.color}>
-            {rv.color === C.green ? "✓" : "○"} {rv.label}
-          </text>
-          <BehindLine pr={pr} behind={behind} />
-          <text fg={C.dim}>
-            <span fg={C.green}>+{pr.additions}</span>{" "}
-            <span fg={C.red}>−{pr.deletions}</span> · {pr.changedFiles} files
-          </text>
-        </box>
-
-        {stack ? <StackList pr={pr} place={stack} width={width} /> : null}
-
-        <box flexDirection="row" flexWrap="wrap" gap={1} marginTop={1}>
-          <Button
-            label={mergeCount > 1 ? `Merge ${mergeCount}` : "Merge"}
-            color={C.green}
-            onPress={actions.handleMerge}
-          />
-          <Button
-            label="Approve"
-            color={C.blue}
-            onPress={actions.handleApprove}
-          />
-          {behind && behind > 0 && pr.mergeable !== "CONFLICTING" ? (
-            <Button
-              label="Update"
-              color={C.yellow}
-              onPress={actions.handleUpdate}
-            />
-          ) : null}
-          <Button label="Close" color={C.red} onPress={actions.handleClose} />
-          <Button label="Open" color={C.dim} onPress={actions.handleOpen} />
-        </box>
-
-        <text fg={C.border} marginTop={1}>
-          {"─".repeat(Math.max(0, width - 4))}
-        </text>
-      </box>
-      <text fg={C.dim} wrapMode="word" flexShrink={1}>
-        {cleanBody(pr.body)}
-      </text>
-    </box>
-  );
-};
-
-const Header = ({
-  repo,
-  busy,
-  dryRun,
-  method,
-  updateMethod,
-}: {
-  repo: string;
-  busy: boolean;
-  dryRun: boolean;
-  method: MergeMethod;
-  updateMethod: UpdateMethod;
-}) => (
-  <box
-    flexDirection="row"
-    justifyContent="space-between"
-    height={1}
-    paddingLeft={1}
-    paddingRight={1}
-  >
-    <text>
-      <span fg={C.accent} attributes={BOLD}>
-        prs
-      </span>
-      <span fg={C.text}> {repo}</span>
-      <span fg={C.dim}>{busy ? "  ⟳" : ""}</span>
-    </text>
-    <text fg={C.dim}>
-      {dryRun ? <span fg={C.yellow}>dry run · </span> : null}
-      {method} · update {updateMethod}
-    </text>
-  </box>
-);
-
-const TabBar = ({
-  tab,
-  counts,
-  onSelect,
-}: {
-  tab: Tab;
-  counts: Partial<Record<Tab, number>>;
-  onSelect: (t: Tab) => void;
-}) => (
-  <box flexDirection="row" height={1} paddingLeft={1} gap={3}>
-    {TABS.map((t, i) => {
-      const active = t.id === tab;
-      return (
-        <box key={t.id} onMouseDown={() => onSelect(t.id)}>
-          <text fg={active ? C.accent : C.dim} attributes={active ? BOLD : 0}>
-            {i + 1} {t.label}{" "}
-            <span fg={active ? C.text : C.faint}>{counts[t.id] ?? ""}</span>
-          </text>
-        </box>
-      );
-    })}
-  </box>
-);
-
-const HINTS = {
-  diff: "j/k scroll · space/b page · J/K next/prev · m merge · a approve · x close · o open · esc back",
-  graph:
-    "j/k move · h/l switch pane · ⏎ show commit · o open on GitHub · r fetch · v hide graph · q quit",
-  list: "j/k move · h/l switch pane · ⏎ diff · m merge · a approve · u update · x close · o open · z undo · tab switch · v graph · p sidebar · [ ] { } resize · q quit",
-};
-
-const Footer = ({
-  toast,
-  view,
-}: {
-  toast: Toast | null;
-  view: keyof typeof HINTS;
-}) => (
-  <box flexDirection="column" height={2} paddingLeft={1} paddingRight={1}>
-    <text fg={toast?.color ?? C.dim} wrapMode="none" truncate>
-      {toast?.text ?? " "}
-    </text>
-    <text fg={C.faint} wrapMode="none" truncate>
-      {HINTS[view]}
-    </text>
-  </box>
-);
-
-const Centered = ({ children }: { children: ReactNode }) => (
-  <box
-    flexGrow={1}
-    alignItems="center"
-    justifyContent="center"
-    flexDirection="column"
-  >
-    {children}
-  </box>
-);
-
-const PRTitle = ({ pr }: { pr: PR }) => (
-  <text wrapMode="none" truncate>
-    <span fg={C.accent}>#{pr.number} </span>
-    <span fg={C.text} attributes={BOLD}>
-      {pr.title}
-    </span>
-    <span fg={C.dim}> </span>
-    <span fg={C.green}>+{pr.additions} </span>
-    <span fg={C.red}>−{pr.deletions}</span>
-    <span fg={C.dim}> · {pr.changedFiles} files</span>
-  </text>
-);
-
-const DiffView = ({
-  title,
-  lines,
-  scroll,
-  height,
-  width,
-}: {
-  title: ReactNode;
-  lines: string[] | null;
-  scroll: number;
-  height: number;
-  width: number;
-}) => (
-  <box flexGrow={1} flexDirection="column" paddingLeft={1} paddingRight={1}>
-    {title}
-    <text fg={C.border}>{"─".repeat(Math.max(0, width - 2))}</text>
-    {(lines ?? ["Loading diff…"])
-      .slice(scroll, scroll + height)
-      .map((line, i) => (
-        <text key={scroll + i} wrapMode="none" truncate {...diffColor(line)}>
-          {line || " "}
-        </text>
-      ))}
-  </box>
-);
-
-const AUTHOR_W = 16;
-
-// below this width the table drops the author, age, and diff columns
-const COMPACT_W = 90;
-
-// joins a stack's rows in the table, top first: ╭ at the top, ├ in the middle, ╰ at the bottom
-const stackGlyph = (place: StackPlace | undefined) => {
-  if (!place) {
-    return "  ";
-  }
-  if (place.index === place.stack.members.length - 1) {
-    return "╭ ";
-  }
-  return place.index === 0 ? "╰ " : "├ ";
-};
-
-const PRRow = ({
-  pr,
-  stack,
-  selected,
-  focused,
-  compact,
-  titleW,
-  onSelect,
-}: {
-  pr: PR;
-  stack: StackPlace | undefined;
-  selected: boolean;
-  focused: boolean;
-  compact: boolean;
-  titleW: number;
-  onSelect: Action;
-}) => {
-  const ci = CHECKS[pr.checks];
-  const rv = review(pr);
-  const lit = selected && focused;
-  return (
-    <box
-      height={1}
-      backgroundColor={lit ? C.selected : C.bg}
-      onMouseDown={onSelect}
-    >
-      <text wrapMode="none" truncate>
-        <span fg={focused ? C.accent : C.faint}>{selected ? "▌ " : "  "}</span>
-        <span fg={C.blue}>{stackGlyph(stack)}</span>
-        <span fg={C.dim}>{`#${pr.number}`.padEnd(7)}</span>
-        <span fg={pr.isDraft ? C.dim : C.text} attributes={lit ? BOLD : 0}>
-          {`${pad(pr.title, titleW)}  `}
-        </span>
-        {compact ? null : <span fg={C.blue}>{pad(pr.author, AUTHOR_W)}</span>}
-        {compact ? null : (
-          <span fg={C.dim}>{age(pr.createdAt).padStart(4)} </span>
-        )}
-        <span fg={ci.color}>{` ${ci.icon} `}</span>
-        <span fg={rv.color}>{pad(rv.short, 9)}</span>
-        {compact ? null : (
-          <span fg={C.green}>{`+${pr.additions}`.padStart(7)}</span>
-        )}
-        {compact ? null : (
-          <span fg={C.red}>{` −${pr.deletions}`.padStart(8)}</span>
-        )}
-      </text>
-    </box>
-  );
-};
-
-const PRTable = ({
-  list,
-  places,
-  cursor,
-  focused,
-  width,
-  height,
-  onSelect,
-}: {
-  list: PR[];
-  places: Map<number, StackPlace>;
-  cursor: number;
-  focused: boolean;
-  width: number;
-  height: number;
-  onSelect: (i: number) => void;
-}) => {
-  const compact = width < COMPACT_W;
-  // marker and stack gutter, number, title gap, then the other columns
-  const fixed = compact
-    ? 4 + 7 + 2 + 3 + 9 + 1
-    : 4 + 7 + 2 + AUTHOR_W + 5 + 3 + 9 + 15 + 1;
-  const titleW = Math.max(12, width - fixed);
-  // keep the cursor roughly centered once the list is taller than the screen
-  const start = Math.max(
-    0,
-    Math.min(cursor - Math.floor(height / 2), list.length - height)
-  );
-  const columns = compact
-    ? `    ${"#".padEnd(7)}${pad("Title", titleW)}  CI ${"Review".padEnd(9)}`
-    : `    ${"#".padEnd(7)}${pad("Title", titleW)}  ${pad("Author", AUTHOR_W)} Age CI ${"Review".padEnd(9)}${"Diff".padStart(15)}`;
-  return (
-    <box width={width} flexDirection="column">
-      <text fg={C.faint} wrapMode="none" truncate>
-        {columns}
-      </text>
-      {list.slice(start, start + height).map((p, i) => (
-        <PRRow
-          key={p.number}
-          pr={p}
-          stack={places.get(p.number)}
-          selected={start + i === cursor}
-          focused={focused}
-          compact={compact}
-          titleW={titleW}
-          onSelect={() => onSelect(start + i)}
-        />
-      ))}
-    </box>
-  );
-};
-
-const CommitTitle = ({ commit }: { commit: Commit }) => (
-  <text wrapMode="none" truncate>
-    <span fg={C.accent}>{commit.short} </span>
-    <span fg={C.text} attributes={BOLD}>
-      {commit.subject}
-    </span>
-    <span fg={C.dim}> {commit.author}</span>
-  </text>
-);
-
-// what the diff view should load: a PR's diff, or a commit from the graph
-const diffTarget = (
-  repo: string,
-  pr: PR | undefined,
-  commit: Commit | undefined,
-  source: Source | null
-): DiffTarget | null => {
-  if (commit && source) {
-    return {
-      key: `commit:${commit.hash}`,
-      load: () => showCommit(source, commit.hash),
+type ModalState =
+  | { kind: "palette" }
+  | { kind: "help" }
+  | { kind: "theme" }
+  | { kind: "files" }
+  | { kind: "labels"; pr: PR }
+  | { kind: "review"; pr: PR }
+  | { kind: "copy"; pr: PR }
+  | {
+      kind: "compose";
+      title: string;
+      context: string;
+      handleSubmit: (body: string) => unknown;
     };
-  }
-  if (pr) {
-    return { key: `pr:${pr.number}`, load: () => getDiff(repo, pr.number) };
-  }
-  return null;
-};
 
-const hintMode = (view: "list" | "diff", inGraph: boolean) => {
-  if (view === "diff") {
-    return "diff";
-  }
-  return inGraph ? "graph" : "list";
-};
-
-const diffTitle = (pr: PR | undefined, commit: Commit | undefined) => {
-  if (commit) {
-    return <CommitTitle commit={commit} />;
-  }
-  return pr ? <PRTitle pr={pr} /> : null;
-};
+// "g g" and friends; there's one app, so one tracker
+const readSequence = sequence();
 
 // the line between two panes. Grabbing it starts a resize; the drag itself is handled at the
 // app's root, since terminals report motion a cell at a time and the pointer leaves a 1-cell line at once
@@ -650,47 +105,37 @@ const Divider = ({ active, onGrab }: { active: boolean; onGrab: Action }) => {
   );
 };
 
-type Resizing = keyof PaneSizes | null;
+const PRTitle = ({ pr, showRepo }: { pr: PR; showRepo: boolean }) => (
+  <text wrapMode="none" truncate>
+    <span fg={C.accent}>
+      {showRepo ? `${pr.repo}#${pr.number} ` : `#${pr.number} `}
+    </span>
+    <span fg={C.text} attributes={BOLD}>
+      {pr.title}
+    </span>
+    <span fg={C.green}>{`  +${pr.additions}`}</span>
+    <span fg={C.red}>{` −${pr.deletions}`}</span>
+  </text>
+);
 
-// the graph pane's width in cells; the PR pane gets the rest
-const graphCells = (width: number, graphPane: boolean, size: number) =>
-  graphPane ? Math.min(width - 50, Math.max(24, Math.round(width * size))) : 0;
+const CommitTitle = ({ commit }: { commit: Commit }) => (
+  <text wrapMode="none" truncate>
+    <span fg={C.accent}>{`${commit.short} `}</span>
+    <span fg={C.text} attributes={BOLD}>
+      {commit.subject}
+    </span>
+    <span fg={C.dim}>{`  ${commit.author}`}</span>
+  </text>
+);
 
-// the PR table with its detail sidebar, or a loading / empty message in its place
-const PRPane = ({
+const EmptyList = ({
   prs,
-  list,
-  places,
-  pr,
-  cursor,
-  focused,
-  onSelect,
-  sidebar,
-  behind,
-  actions,
   emptyLabel,
-  sidebarSize,
-  resizing,
-  onGrabDivider,
-  width,
-  height,
+  filter,
 }: {
   prs: PR[] | null;
-  list: PR[];
-  places: Map<number, StackPlace>;
-  pr: PR | undefined;
-  cursor: number;
-  focused: boolean;
-  onSelect: (i: number) => void;
-  sidebar: boolean;
-  behind: number | undefined;
-  actions: PRActions;
   emptyLabel: string;
-  sidebarSize: number;
-  resizing: Resizing;
-  onGrabDivider: Action;
-  width: number;
-  height: number;
+  filter: string;
 }) => {
   if (!prs) {
     return (
@@ -699,124 +144,243 @@ const PRPane = ({
       </Centered>
     );
   }
-  if (!pr) {
-    return (
-      <Centered>
-        <text fg={C.green} attributes={BOLD}>
-          Inbox zero.
-        </text>
-        <text fg={C.dim}>Nothing in {emptyLabel}.</text>
-      </Centered>
-    );
-  }
-  const sideW = sidebar
-    ? Math.min(width - 30, Math.max(28, Math.round(width * sidebarSize)))
-    : 0;
   return (
-    <box flexGrow={1} flexDirection="row">
-      <PRTable
-        list={list}
-        places={places}
-        cursor={cursor}
-        focused={focused}
-        width={width - sideW - (sidebar ? 1 : 0)}
-        height={height}
-        onSelect={onSelect}
-      />
-      {sidebar ? (
-        <Divider active={resizing === "sidebar"} onGrab={onGrabDivider} />
-      ) : null}
-      {sidebar ? (
-        <Sidebar
-          pr={pr}
-          width={sideW}
-          behind={behind}
-          stack={places.get(pr.number)}
-          mergeCount={mergePlan(pr, places).length}
-          actions={actions}
-        />
-      ) : null}
-    </box>
+    <Centered>
+      <text fg={C.green} attributes={BOLD}>
+        {filter ? "No matches." : "Inbox zero."}
+      </text>
+      <text fg={C.dim}>
+        {filter
+          ? `Nothing in ${emptyLabel} matches “${filter}”.`
+          : `Nothing in ${emptyLabel}.`}
+      </text>
+    </Centered>
   );
 };
 
-// graph on the left, PRs on the right; or a full-width diff
-const MainView = ({
-  view,
-  focus,
-  graphPane,
-  graph,
-  graphCursor,
-  onSelectCommit,
-  cell,
-  pr,
-  commit,
-  diffLines,
-  scroll,
-  graphSize,
-  resizing,
-  onGrabDivider,
-  width,
-  height,
-  prPane,
-}: {
-  view: "list" | "diff";
+interface ListProps {
+  prs: PR[] | null;
+  list: PR[];
+  places: Map<string, StackPlace>;
+  pr: PR | undefined;
+  cursor: number;
   focus: Focus;
+  compact: boolean;
+  showRepo: boolean;
+  handleSelectPR: (i: number) => void;
+  sidebar: boolean;
+  behind: number | undefined;
+  actions: PRActions;
+  emptyLabel: string;
+  filter: string;
   graphPane: boolean;
   graph: GraphState;
   graphCursor: number;
-  onSelectCommit: (i: number) => void;
+  handleSelectCommit: (i: number) => void;
   cell: CellPixels | null;
-  pr: PR | undefined;
-  commit: Commit | undefined;
-  diffLines: string[] | null;
-  scroll: number;
-  graphSize: number;
+  sizes: PaneSizes;
   resizing: Resizing;
-  onGrabDivider: Action;
+  handleGrab: (pane: keyof PaneSizes) => void;
   width: number;
   height: number;
-  prPane: (width: number, height: number) => ReactNode;
-}) => {
-  // header, tabs, gap, table header, toast, footer
-  const bodyH = height - 6;
-  const title = diffTitle(pr, commit);
-  if (view === "diff" && title) {
-    return (
-      <DiffView
-        title={title}
-        lines={diffLines}
-        scroll={scroll}
-        height={bodyH - 1}
-        width={width}
-      />
-    );
-  }
-  const graphW = graphCells(width, graphPane, graphSize);
+}
+
+// graph on the left, then the PR table and the selected PR's details
+const ListScreen = (p: ListProps) => {
+  const graphW = graphCells(p.width, p.graphPane, p.sizes.graph);
+  const paneW = p.width - graphW - (p.graphPane ? 1 : 0);
+  const sideW = sidebarCells(paneW, p.sidebar, p.sizes.sidebar);
+  const showSidebar = Boolean(p.pr) && p.sidebar;
   return (
     <box flexGrow={1} flexDirection="row">
-      {graphPane ? (
+      {p.graphPane ? (
         <GraphView
-          rows={graph.rows}
-          status={graph.status}
-          cursor={graphCursor}
-          focused={focus === "graph"}
-          cell={cell}
+          rows={p.graph.rows}
+          status={p.graph.status}
+          cursor={p.graphCursor}
+          focused={p.focus === "graph"}
+          cell={p.cell}
           width={graphW}
-          height={bodyH + 1}
-          onSelect={onSelectCommit}
+          height={p.height}
+          onSelect={p.handleSelectCommit}
         />
       ) : null}
-      {graphPane ? (
-        <Divider active={resizing === "graph"} onGrab={onGrabDivider} />
+      {p.graphPane ? (
+        <Divider
+          active={p.resizing === "graph"}
+          onGrab={() => p.handleGrab("graph")}
+        />
       ) : null}
-      {prPane(width - graphW - (graphPane ? 1 : 0), bodyH)}
+      {p.pr ? (
+        <PRTable
+          list={p.list}
+          places={p.places}
+          cursor={p.cursor}
+          focused={p.focus === "prs"}
+          compact={p.compact}
+          showRepo={p.showRepo}
+          width={paneW - sideW - (p.sidebar ? 1 : 0)}
+          height={p.height}
+          onSelect={p.handleSelectPR}
+        />
+      ) : (
+        <EmptyList prs={p.prs} emptyLabel={p.emptyLabel} filter={p.filter} />
+      )}
+      {showSidebar ? (
+        <Divider
+          active={p.resizing === "sidebar"}
+          onGrab={() => p.handleGrab("sidebar")}
+        />
+      ) : null}
+      {showSidebar && p.pr ? (
+        <Sidebar
+          pr={p.pr}
+          width={sideW}
+          behind={p.behind}
+          stack={p.places.get(prKey(p.pr))}
+          mergeCount={mergePlan(p.pr, p.places).length}
+          showRepo={p.showRepo}
+          actions={p.actions}
+        />
+      ) : null}
     </box>
   );
 };
 
+const diffSubtitle = (
+  diff: ParsedDiff | null,
+  threadCount: number,
+  where: string,
+  selecting: boolean
+) =>
+  [
+    plural(diff?.files.length ?? 0, "file"),
+    threadCount ? plural(threadCount, "comment thread") : "",
+    where ? fit(where, 60) : "",
+    selecting ? "selecting lines, ⏎ to comment" : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+// the dialog that's open, if any
+const ModalHost = ({
+  modal,
+  commands,
+  screen,
+  themeChoice,
+  files,
+  onClose,
+  onTheme,
+  onPreview,
+  onJumpFile,
+  onLabels,
+  onReview,
+  onCopy,
+}: {
+  modal: ModalState | null;
+  commands: Cmd[];
+  screen: Screen;
+  themeChoice: ThemeChoice;
+  files: ParsedDiff["files"];
+  onClose: () => void;
+  onTheme: (choice: ThemeChoice) => void;
+  onPreview: (choice: ThemeChoice | null) => void;
+  onJumpFile: (path: string) => void;
+  onLabels: (pr: PR, names: string[]) => void;
+  onReview: (
+    pr: PR,
+    event: Parameters<typeof submitReview>[1],
+    body: string
+  ) => void;
+  onCopy: (label: string, value: string) => void;
+}) => {
+  switch (modal?.kind) {
+    case "palette": {
+      return (
+        <CommandPalette
+          commands={commands
+            .filter((c) => !c.paletteHidden && c.screens.includes(screen))
+            .map((c) => ({
+              id: c.id,
+              keys: c.keys.map((k) => k.replace("return", "⏎")).join(" "),
+              label: c.label,
+              run: c.run,
+            }))}
+          onClose={onClose}
+        />
+      );
+    }
+    case "help": {
+      return (
+        <HelpModal
+          sections={helpSections(commands.filter((c) => !c.paletteHidden))}
+          onClose={onClose}
+        />
+      );
+    }
+    case "theme": {
+      return (
+        <ThemeModal
+          current={themeChoice}
+          onPreview={onPreview}
+          onChoose={onTheme}
+          onClose={() => {
+            onPreview(null);
+            onClose();
+          }}
+        />
+      );
+    }
+    case "files": {
+      return <FilesModal files={files} onJump={onJumpFile} onClose={onClose} />;
+    }
+    case "labels": {
+      const { pr } = modal;
+      return (
+        <LabelsModal
+          pr={pr}
+          onApply={(names) => onLabels(pr, names)}
+          onClose={onClose}
+        />
+      );
+    }
+    case "review": {
+      const { pr } = modal;
+      return (
+        <ReviewModal
+          pr={pr}
+          onSubmit={(event, body) => onReview(pr, event, body)}
+          onClose={onClose}
+        />
+      );
+    }
+    case "copy": {
+      return (
+        <CopyModal
+          pr={modal.pr}
+          onCopy={(choice) => onCopy(choice.label, choice.value)}
+          onClose={onClose}
+        />
+      );
+    }
+    case "compose": {
+      return (
+        <ComposeModal
+          title={modal.title}
+          context={modal.context}
+          onSubmit={modal.handleSubmit}
+          onClose={onClose}
+        />
+      );
+    }
+    default: {
+      return null;
+    }
+  }
+};
+
 export const App = ({
-  repo,
+  scope,
   local,
   method,
   updateMethod,
@@ -824,164 +388,148 @@ export const App = ({
   dryRun,
   textGraph,
   initialSizes,
+  config,
   onQuit,
 }: {
-  repo: string;
-  initialSizes: PaneSizes;
+  // "owner/repo", or "" to look across every repo
+  scope: string;
   local: string | null;
-  // draw the graph with characters even when the terminal can show images
-  textGraph: boolean;
   method: MergeMethod;
   updateMethod: UpdateMethod;
   delay: number;
   dryRun: boolean;
+  // draw the graph with characters even when the terminal can show images
+  textGraph: boolean;
+  initialSizes: PaneSizes;
+  config: Config;
   onQuit: () => void;
 }) => {
+  const renderer = useRenderer();
   const { width, height } = useTerminalDimensions();
-  const [prs, setPrs] = useState<PR[] | null>(null);
-  const [me, setMe] = useState("");
-  const [tab, setTab] = useState<Tab>("all");
-  const [cursor, setCursor] = useState(0);
-  const [graphCursor, setGraphCursor] = useState(0);
-  const [focus, setFocus] = useState<Focus>("prs");
-  const [graphPane, setGraphPane] = useState(true);
-  const [sizes, setSizes] = useState(initialSizes);
-  const [resizing, setResizing] = useState<Resizing>(null);
-  // only write the layout file once the user has actually resized something
-  const resized = useRef(false);
+  const theme = useTheme(config);
 
-  useEffect(() => {
-    if (!resized.current) {
-      return;
-    }
-    // dragging fires many updates; save once it settles
-    const timer = setTimeout(() => saveSizes(sizes), 400);
-    return () => clearTimeout(timer);
-  }, [sizes]);
-
-  const resize = (pane: keyof PaneSizes, fraction: number) => {
-    resized.current = true;
-    setSizes((s) => ({ ...s, [pane]: clampSize(pane, fraction) }));
-  };
-
-  const nudge = (pane: keyof PaneSizes, delta: number) =>
-    resize(pane, sizes[pane] + delta);
-
-  const resetSizes = () => {
-    resized.current = true;
-    setSizes(DEFAULT_SIZES);
-  };
-  const [view, setView] = useState<"list" | "diff">("list");
-  const [sidebar, setSidebar] = useState(true);
-  const [scroll, setScroll] = useState(0);
   const [toast, setToast] = useState<Toast | null>(null);
-  const [busy, setBusy] = useState(true);
-  // bumped each time a merge or close lands (or fails), to reload the list
-  const [settled, setSettled] = useState(0);
-
   // toasts are one line; a line break would spill into the key hints below
   const flash = (text: string, color = C.text) =>
     setToast({ color, text: text.replaceAll(/\s+/gu, " ").trim() });
+
+  // ── data ──────────────────────────────────────────────────────────────
+  const me = useLoader("viewer", viewer);
+  const { busy, lists, queues, refresh } = useQueues(
+    scope,
+    me.value ?? "",
+    flash
+  );
+  const [settled, setSettled] = useState(0);
   const pending = usePendingAction({
     delay,
     flash,
     method,
     // after a merge GitHub may have re-pointed PRs, so reload what it says now
     onSettled: () => setSettled((n) => n + 1),
-    repo,
-    setPrs,
   });
-
-  const fetchPRs = async () => {
-    try {
-      const fetched = await listPRs(repo);
-      const skip = new Set(pending.pendingNumbers());
-      setPrs(fetched.filter((p) => !skip.has(p.number)));
-    } catch (error) {
-      flash(`✗ ${errorMessage(error)}`, C.red);
-      setPrs((p) => p ?? []);
+  const reloadAfterAction = useEffectEvent(refresh);
+  useEffect(() => {
+    if (settled > 0) {
+      reloadAfterAction();
     }
-    setBusy(false);
-  };
-
-  const refresh = () => {
-    setBusy(true);
-    fetchPRs();
-  };
-
-  // repo is fixed for the life of the app, so these only run once
-  const loadPRs = useEffectEvent(fetchPRs);
-  useEffect(() => {
-    const load = async () => {
-      await loadPRs();
-    };
-    load();
-  }, []);
-
-  useEffect(() => {
-    const load = async () => setMe(await viewer());
-    load();
-  }, []);
-
-  const reloadAfterAction = useEffectEvent(fetchPRs);
-  useEffect(() => {
-    if (settled === 0) {
-      return;
-    }
-    const load = async () => {
-      await reloadAfterAction();
-    };
-    load();
   }, [settled]);
 
-  const inGraph = graphPane && focus === "graph";
-  const graph = useGraph(repo, local, graphPane);
-  const cell = useCellPixels(graphPane && !textGraph);
-  const commits = graph.rows ?? [];
+  // ── view state ────────────────────────────────────────────────────────
+  const [tab, setTab] = useState(scope ? "all" : "mine");
+  const [cursor, setCursor] = useState(0);
+  const [filter, setFilter] = useState("");
+  const [filtering, setFiltering] = useState(false);
+  const [screen, setScreen] = useState<Screen>("list");
+  const [modal, setModal] = useState<ModalState | null>(null);
+  const [focus, setFocus] = useState<Focus>("prs");
+  const [graphPane, setGraphPane] = useState(Boolean(scope));
+  const [sidebar, setSidebar] = useState(true);
+  const [graphCursor, setGraphCursor] = useState(0);
+  // null until the user moves: the diff then opens on its first line of code
+  const [diffMoved, setDiffMoved] = useState<number | null>(null);
+  const [rangeStart, setRangeStart] = useState<number | null>(null);
+  const [checksCursor, setChecksCursor] = useState(0);
+  const [jobCheck, setJobCheck] = useState<Check | null>(null);
+  const [logCursor, setLogCursor] = useState<number | null>(null);
 
-  const all = prs ?? [];
-  const tabs: Record<Tab, PR[]> = {
-    all,
-    mine: all.filter((p) => p.author === me),
-    review: all.filter((p) => p.reviewRequests.includes(me)),
-  };
-  // stacks come from every open PR, so a stack still shows whole in a filtered tab's sidebar
-  const places = findStacks(all);
-  const list = groupStacks(tabs[tab], places);
-  const pr = list[Math.min(cursor, list.length - 1)];
+  const showGraph = graphPane && Boolean(scope);
+  const panes = usePaneSizes(initialSizes, width, showGraph);
+  const { list, places, pr, source } = useSelection({
+    cursor,
+    filter,
+    hidden: pending.hidden,
+    lists,
+    scope,
+    tab,
+  });
+  const showRepo = !scope;
+  const compact = tab === "mine";
+
+  const graph = useGraph(scope, local, showGraph);
+  const cell = useCellPixels(showGraph && !textGraph);
+  const commits = graph.rows ?? [];
+  const inGraph = showGraph && focus === "graph";
   const commit = inGraph
     ? commits[Math.min(graphCursor, commits.length - 1)]?.commit
     : undefined;
 
-  const { behind, markUpToDate } = useBehind(repo, pr);
-  const diffLines = useDiff(
-    view === "diff" ? diffTarget(repo, pr, commit, graph.source) : null
-  );
+  const { behind, markUpToDate } = useBehind(pr);
+  const {
+    cursor: diffCursor,
+    diff,
+    rows,
+    threads,
+  } = useDiffData({
+    commit,
+    graph,
+    moved: diffMoved,
+    pr,
+    screen,
+    width,
+  });
+  const { checks, log, logAt, steps } = useChecksData({
+    job: jobCheck,
+    logCursor,
+    pr,
+    screen,
+  });
 
-  // merging a stacked PR takes everything below it with it, like `gh stack merge`
-  const queue = (kind: PendingKind, target: PR) => {
-    const plan = kind === "merge" ? mergePlan(target, places) : [target];
-    const native =
-      kind === "merge"
-        ? (places.get(target.number)?.stack.native ?? null)
-        : null;
-    pending.queue(kind, plan, all, native);
-    setCursor((c) => Math.max(0, Math.min(c, list.length - plan.length - 1)));
-    setView("list");
-  };
+  // ── actions ───────────────────────────────────────────────────────────
+  const withPR = (fn: (p: PR) => unknown) => () =>
+    pr ? fn(pr) : flash("No pull request selected", C.dim);
+  // PR keys do nothing while browsing the graph; the sidebar's buttons still work
+  const onPRs = (fn: (p: PR) => unknown) => () =>
+    inGraph ? undefined : withPR(fn)();
 
-  const doApprove = async (target: PR) => {
-    flash(`Approving #${target.number}…`, C.yellow);
+  const attempt = async (
+    doing: string,
+    done: string,
+    work: () => Promise<unknown>
+  ) => {
+    flash(`${doing}…`, C.yellow);
     try {
-      await approve(repo, target.number);
-      flash(`✓ Approved #${target.number}`, C.green);
+      await work();
+      flash(`✓ ${done}`, C.green);
       refresh();
     } catch (error) {
       flash(`✗ ${errorMessage(error)}`, C.red);
     }
   };
 
-  const doUpdate = async (target: PR) => {
+  // merging a stacked PR takes everything below it with it, like `gh stack merge`
+  const queue = (kind: PendingKind, target: PR) => {
+    const plan = kind === "merge" ? mergePlan(target, places) : [target];
+    const native =
+      kind === "merge"
+        ? (places.get(prKey(target))?.stack.native ?? null)
+        : null;
+    pending.queue(kind, plan, native);
+    setCursor((c) => Math.max(0, Math.min(c, list.length - plan.length - 1)));
+    setScreen("list");
+  };
+
+  const update = (target: PR) => {
     // GitHub can't rebase or merge a branch that conflicts with its base
     if (target.mergeable === "CONFLICTING") {
       flash(
@@ -990,212 +538,390 @@ export const App = ({
       );
       return;
     }
-    const how = updateMethod === "rebase" ? "Rebasing" : "Updating";
-    flash(`${how} #${target.number} onto ${target.baseRefName}…`, C.yellow);
-    try {
-      await updateBranch(target, updateMethod);
-      markUpToDate(target);
-      flash(`✓ Updated #${target.number} with ${target.baseRefName}`, C.green);
-      refresh();
-    } catch (error) {
-      flash(`✗ #${target.number}: ${errorMessage(error)}`, C.red);
+    const verb = updateMethod === "rebase" ? "Rebasing" : "Updating";
+    attempt(
+      `${verb} #${target.number} onto ${target.baseRefName}`,
+      `Updated #${target.number}`,
+      async () => {
+        await updateBranch(target, updateMethod);
+        markUpToDate(target);
+      }
+    );
+  };
+
+  const edit = async (target: PR) => {
+    const command = editorCommand(
+      config,
+      target,
+      scope === target.repo ? local : null
+    );
+    if (!command) {
+      flash(
+        "Set editorCommand in ~/.config/prs/config.json, or $EDITOR",
+        C.yellow
+      );
+      return;
+    }
+    const code = await runInTerminal(renderer, command);
+    flash(
+      code === 0 ? "Back from the editor" : `Editor exited with ${code}`,
+      C.dim
+    );
+  };
+
+  const openThing = () => {
+    const check = checks.value?.[checksCursor];
+    if (screen === "job" && jobCheck) {
+      openInBrowser(jobCheck.url);
+    } else if (screen === "checks" && check) {
+      openInBrowser(check.url);
+    } else if (commit) {
+      openInBrowser(`https://github.com/${scope}/commit/${commit.hash}`);
+    } else if (pr) {
+      openInBrowser(pr.url);
+    }
+  };
+
+  const approve = (p: PR) =>
+    attempt(`Approving #${p.number}`, `Approved #${p.number}`, () =>
+      submitReview(p, "APPROVE")
+    );
+
+  const toggleDraft = (p: PR) =>
+    attempt(
+      p.isDraft ? "Marking ready" : "Converting to draft",
+      p.isDraft
+        ? `#${p.number} is ready for review`
+        : `#${p.number} is a draft`,
+      () => setDraft(p, !p.isDraft)
+    );
+
+  const prActions: PRActions = {
+    handleApprove: withPR(approve),
+    handleClose: withPR((p) => queue("close", p)),
+    handleMerge: withPR((p) => queue("merge", p)),
+    handleOpen: withPR((p) => openInBrowser(p.url)),
+    handleUpdate: withPR(update),
+  };
+
+  // ── moving around ─────────────────────────────────────────────────────
+  const count = inGraph ? commits.length : list.length;
+  const setActive = inGraph ? setGraphCursor : setCursor;
+  const move = (n: number) =>
+    setActive((c) => Math.max(0, Math.min(c + n, count - 1)));
+
+  const showQueue = (id: string) => {
+    setTab(id);
+    setCursor(0);
+    setFocus("prs");
+    setScreen("list");
+  };
+  const cycleQueue = (dir: 1 | -1) => {
+    const i = queues.findIndex((q) => q.id === tab);
+    const next = queues[(i + dir + queues.length) % queues.length];
+    if (next) {
+      showQueue(next.id);
+    }
+  };
+
+  const openDiff = () => {
+    if (!pr && !commit) {
+      return;
+    }
+    setDiffMoved(null);
+    setRangeStart(null);
+    setScreen("diff");
+  };
+
+  const back = () => {
+    if (screen === "job") {
+      setScreen("checks");
+    } else if (screen === "diff" && rangeStart !== null) {
+      setRangeStart(null);
+    } else if (screen === "list" && filter) {
+      setFilter("");
+    } else {
+      setScreen("list");
     }
   };
 
   const quit = async () => {
     await pending.flush();
-    // the resize save waits for dragging to settle; don't lose it by quitting first
-    if (resized.current) {
-      await saveSizes(sizes);
-    }
+    await panes.saveNow();
     onQuit();
   };
 
-  const selectTab = (t: Tab) => {
-    setTab(t);
-    setCursor(0);
-    setFocus("prs");
-    setView("list");
-  };
-
-  const toggleGraph = () => {
-    setGraphPane((g) => !g);
-    setFocus("prs");
-  };
-
-  const focusGraph = () => graphPane && setFocus("graph");
-
-  const selectCommit = (i: number) => {
-    setGraphCursor(i);
-    setFocus("graph");
-  };
-
-  const selectPR = (i: number) => {
-    setCursor(i);
-    setFocus("prs");
-  };
-
-  const cycleTab = (dir: 1 | -1) => {
-    const i = TABS.findIndex((t) => t.id === tab);
-    const next = TABS[(i + dir + TABS.length) % TABS.length];
-    if (next) {
-      selectTab(next.id);
+  // diff: the row under the cursor gets a new comment, or a reply if it's a comment
+  const comment = () => {
+    const row = rows[diffCursor];
+    if (!pr || commit || !row) {
+      return;
     }
-  };
-
-  const count = inGraph ? commits.length : list.length;
-  const setActiveCursor = inGraph ? setGraphCursor : setCursor;
-  const moveCursor = (dir: 1 | -1) =>
-    setActiveCursor((c) => Math.max(0, Math.min(c + dir, count - 1)));
-
-  const openDiff = () => {
-    setScroll(0);
-    setView("diff");
-  };
-
-  const movePR = (dir: 1 | -1) => {
-    setScroll(0);
-    moveCursor(dir);
-  };
-
-  // header, tabs, gap, title, rule, toast, footer
-  const diffH = height - 7;
-  const maxScroll = Math.max(0, (diffLines?.length ?? 0) - diffH);
-  const scrollBy = (n: number) =>
-    setScroll((s) => Math.max(0, Math.min(s + n, maxScroll)));
-
-  const prActions: PRActions = {
-    handleApprove: () => pr && doApprove(pr),
-    handleClose: () => pr && queue("close", pr),
-    handleMerge: () => pr && queue("merge", pr),
-    handleOpen: () => pr && openInBrowser(pr.url),
-    handleUpdate: () => pr && doUpdate(pr),
-  };
-
-  // PR keys do nothing while browsing the graph; the sidebar's buttons still work
-  const onPRs = (fn: Action) => () => !inGraph && fn();
-
-  const openCommit = () =>
-    commit && openInBrowser(`https://github.com/${repo}/commit/${commit.hash}`);
-
-  const refreshAll = () => {
-    refresh();
-    graph.reload();
-  };
-
-  // built per keypress, from the handler, so the actions only ever run outside render
-  const keymap = (id: string) => {
-    const globalKeys = new Map([
-      ...bind(["ctrl+c"], quit),
-      ...bind(["z"], pending.undo),
-      ...bind(["r"], refreshAll),
-      ...bind(["m"], onPRs(prActions.handleMerge)),
-      ...bind(["a"], onPRs(prActions.handleApprove)),
-      ...bind(["x"], onPRs(prActions.handleClose)),
-      ...bind(["o"], inGraph ? openCommit : prActions.handleOpen),
-    ]);
-
-    const listKeys = new Map([
-      ...bind(["q"], quit),
-      ...bind(["j", "down"], () => moveCursor(1)),
-      ...bind(["k", "up"], () => moveCursor(-1)),
-      ...bind(["g"], () => setActiveCursor(0)),
-      ...bind(["G"], () => setActiveCursor(count - 1)),
-      ...bind(["tab"], () => cycleTab(1)),
-      ...bind(["shift+tab"], () => cycleTab(-1)),
-      ...TABS.flatMap((t, i) => bind([String(i + 1)], () => selectTab(t.id))),
-      ...bind(["p"], () => setSidebar((s) => !s)),
-      ...bind(["v"], toggleGraph),
-      ...bind(["["], () => nudge("graph", -0.03)),
-      ...bind(["]"], () => nudge("graph", 0.03)),
-      ...bind(["{"], () => nudge("sidebar", -0.03)),
-      ...bind(["}"], () => nudge("sidebar", 0.03)),
-      ...bind(["="], resetSizes),
-      ...bind(["h", "left"], focusGraph),
-      ...bind(["l", "right"], () => setFocus("prs")),
-      ...bind(["u"], onPRs(prActions.handleUpdate)),
-      ...bind(["return", "d"], () => (pr || commit) && openDiff()),
-    ]);
-
-    const diffKeys = new Map([
-      ...bind(["escape", "q", "h", "left"], () => setView("list")),
-      ...bind(["j", "down"], () => scrollBy(1)),
-      ...bind(["k", "up"], () => scrollBy(-1)),
-      ...bind([" ", "pagedown"], () => scrollBy(diffH - 2)),
-      ...bind(["b", "u", "pageup"], () => scrollBy(-(diffH - 2))),
-      ...bind(["g"], () => setScroll(0)),
-      ...bind(["G"], () => setScroll(maxScroll)),
-      ...bind(["J"], () => movePR(1)),
-      ...bind(["K"], () => movePR(-1)),
-    ]);
-
-    const keys = view === "list" ? listKeys : diffKeys;
-    return keys.get(id) ?? globalKeys.get(id);
-  };
-
-  useKeyboard((key: KeyEvent) => keymap(keyId(key))?.());
-
-  const prPane = (paneW: number, paneH: number) => (
-    <PRPane
-      prs={prs}
-      list={list}
-      places={places}
-      pr={pr}
-      cursor={cursor}
-      focused={!inGraph}
-      onSelect={selectPR}
-      sidebar={sidebar}
-      behind={behind}
-      actions={prActions}
-      emptyLabel={TABS.find((t) => t.id === tab)?.label ?? ""}
-      sidebarSize={sizes.sidebar}
-      resizing={resizing}
-      onGrabDivider={() => setResizing("sidebar")}
-      width={paneW}
-      height={paneH}
-    />
-  );
-
-  const main = (
-    <MainView
-      view={view}
-      focus={inGraph ? "graph" : "prs"}
-      graphPane={graphPane}
-      graph={graph}
-      graphCursor={graphCursor}
-      onSelectCommit={selectCommit}
-      cell={cell}
-      pr={pr}
-      commit={commit}
-      diffLines={diffLines}
-      scroll={scroll}
-      graphSize={sizes.graph}
-      resizing={resizing}
-      onGrabDivider={() => setResizing("graph")}
-      width={width}
-      height={height}
-      prPane={prPane}
-    />
-  );
-
-  // while a divider is held, every drag anywhere resizes its pane
-  const dragTo = (x: number) => {
-    if (resizing === "graph") {
-      resize("graph", x / width);
-    } else if (resizing === "sidebar") {
-      // the PR pane runs to the right edge, so the sidebar gets everything right of the pointer
-      const paneW = width - graphCells(width, graphPane, sizes.graph) - 1;
-      resize("sidebar", (width - x - 1) / paneW);
+    if (row.kind === "comment") {
+      setModal({
+        context: `replying to ${row.thread.comments[0]?.author ?? ""} on ${row.thread.path}`,
+        handleSubmit: (body) =>
+          attempt("Replying", "Replied", async () => {
+            await reply(pr, row.thread.id, body);
+            threads.reload();
+          }),
+        kind: "compose",
+        title: "Reply",
+      });
+      return;
     }
+    const end = anchorOf(row);
+    if (!end) {
+      flash("Pick a line of code to comment on", C.dim);
+      return;
+    }
+    const startRow = rangeStart === null ? undefined : rows[rangeStart];
+    const start = startRow ? anchorOf(startRow) : null;
+    const range =
+      start && start.path === end.path && start.side === end.side
+        ? start
+        : null;
+    const lo = range ? Math.min(range.line, end.line) : end.line;
+    const hi = range ? Math.max(range.line, end.line) : end.line;
+    setModal({
+      context: `${end.path}:${lo === hi ? lo : `${lo}-${hi}`}`,
+      handleSubmit: (body) =>
+        attempt("Commenting", "Commented", async () => {
+          await addComment(pr, {
+            body,
+            line: hi,
+            path: end.path,
+            side: end.side,
+            startLine: lo,
+          });
+          setRangeStart(null);
+          threads.reload();
+        }),
+      kind: "compose",
+      title: "Comment",
+    });
   };
 
-  const counts = prs
-    ? {
-        all: tabs.all.length,
-        mine: tabs.mine.length,
-        review: tabs.review.length,
+  const moveDiff = (n: number) =>
+    setDiffMoved(Math.max(0, Math.min(diffCursor + n, rows.length - 1)));
+
+  const nextError = (dir: 1 | -1) => {
+    const lines = log.value ?? [];
+    for (let i = logAt + dir; i >= 0 && i < lines.length; i += dir) {
+      if (isErrorLine(lines[i] ?? "")) {
+        setLogCursor(i);
+        return;
       }
-    : {};
+    }
+  };
+
+  const openCheck = () => {
+    const check = checks.value?.[checksCursor];
+    if (check?.jobId) {
+      setJobCheck(check);
+      setLogCursor(null);
+      setScreen("job");
+    } else if (check) {
+      openInBrowser(check.url);
+    }
+  };
+
+  const half = Math.floor(height / 2);
+  const commands = buildCommands({
+    approve,
+    back,
+    bottom: () => setActive(count - 1),
+    checks: () => {
+      setChecksCursor(0);
+      setScreen("checks");
+    },
+    close: (p) => queue("close", p),
+    comment,
+    copy: (p) => setModal({ kind: "copy", pr: p }),
+    cycleQueue,
+    diffBottom: () => setDiffMoved(rows.length - 1),
+    diffTop: () => setDiffMoved(0),
+    edit,
+    files: () => setModal({ kind: "files" }),
+    filter: () => setFiltering(true),
+    focusGraph: () => showGraph && setFocus("graph"),
+    focusPRs: () => setFocus("prs"),
+    half,
+    help: () => setModal({ kind: "help" }),
+    labels: (p) => setModal({ kind: "labels", pr: p }),
+    merge: (p) => queue("merge", p),
+    move,
+    moveChecks: (n) =>
+      setChecksCursor((c) =>
+        Math.max(0, Math.min(c + n, (checks.value?.length ?? 1) - 1))
+      ),
+    moveDiff,
+    moveLog: (n) =>
+      setLogCursor(
+        Math.max(0, Math.min(logAt + n, (log.value?.length ?? 1) - 1))
+      ),
+    movePR: (n) => {
+      setDiffMoved(null);
+      setRangeStart(null);
+      move(n);
+    },
+    nextError,
+    nextFile: (dir) =>
+      setDiffMoved(jump(rows, diffCursor, dir, (r) => r.kind === "file")),
+    nextThread: (dir) =>
+      setDiffMoved(
+        jump(rows, diffCursor, dir, (r) => r.kind === "comment" && r.first)
+      ),
+    onPRs,
+    open: openThing,
+    openCheck,
+    openDiff,
+    page: pageSize(height - 7, compact),
+    palette: () => setModal({ kind: "palette" }),
+    queues,
+    quit: () => (screen === "list" ? quit() : back()),
+    refresh: () => {
+      refresh();
+      graph.reload();
+      threads.reload();
+      checks.reload();
+    },
+    resetSizes: panes.reset,
+    resize: panes.resize,
+    review: (p) => setModal({ kind: "review", pr: p }),
+    showQueue,
+    sizes: panes.sizes,
+    theme: () => setModal({ kind: "theme" }),
+    toggleDraft,
+    toggleGraph: () => {
+      setGraphPane((g) => !g);
+      setFocus("prs");
+    },
+    toggleRange: () => setRangeStart((r) => (r === null ? diffCursor : null)),
+    toggleSidebar: () => setSidebar((s) => !s),
+    top: () => setActive(0),
+    undo: pending.undo,
+    update,
+  });
+
+  // ── keys ──────────────────────────────────────────────────────────────
+  useKeyboard((key: KeyEvent) => {
+    const id = keyId(key);
+    if (id === "ctrl+c") {
+      quit();
+      return;
+    }
+    if (modal) {
+      return;
+    }
+    if (filtering) {
+      if (id === "escape") {
+        setFilter("");
+        setFiltering(false);
+      } else if (id === "return") {
+        setFiltering(false);
+      } else if (id === "down" || id === "up") {
+        move(id === "down" ? 1 : -1);
+      }
+      return;
+    }
+    const keys = keymapFor(commands, screen);
+    const combo = readSequence(id);
+    const action = (combo ? keys.get(combo) : undefined) ?? keys.get(id);
+    action?.();
+  });
+
+  // ── what to draw ──────────────────────────────────────────────────────
+  const bodyH = height - (screen === "list" ? 7 : 5);
+  let title: ReactNode = null;
+  if (commit) {
+    title = <CommitTitle commit={commit} />;
+  } else if (pr) {
+    title = <PRTitle pr={pr} showRepo={showRepo} />;
+  }
+
+  const main = (): ReactNode => {
+    if (screen === "diff") {
+      return (
+        <DiffView
+          title={title}
+          subtitle={diffSubtitle(
+            diff.value,
+            threads.value?.length ?? 0,
+            fileAt(rows, diffCursor),
+            rangeStart !== null
+          )}
+          rows={rows}
+          cursor={Math.min(diffCursor, Math.max(0, rows.length - 1))}
+          rangeStart={rangeStart}
+          width={width}
+          height={bodyH}
+          loading={!diff.loaded}
+        />
+      );
+    }
+    if (screen === "checks") {
+      return (
+        <ChecksView
+          title={title}
+          checks={checks.loaded ? (checks.value ?? []) : null}
+          cursor={checksCursor}
+          width={width}
+          height={bodyH}
+        />
+      );
+    }
+    if (screen === "job" && jobCheck) {
+      return (
+        <JobView
+          title={title}
+          check={jobCheck}
+          steps={steps.value}
+          log={log.value}
+          cursor={logAt}
+          width={width}
+          height={bodyH}
+        />
+      );
+    }
+    return (
+      <ListScreen
+        prs={lists ? source : null}
+        list={list}
+        places={places}
+        pr={pr}
+        cursor={Math.min(cursor, Math.max(0, list.length - 1))}
+        focus={inGraph ? "graph" : "prs"}
+        compact={compact}
+        showRepo={showRepo}
+        handleSelectPR={(i) => {
+          setCursor(i);
+          setFocus("prs");
+        }}
+        sidebar={sidebar}
+        behind={behind}
+        actions={prActions}
+        emptyLabel={queues.find((q) => q.id === tab)?.label ?? ""}
+        filter={filter}
+        graphPane={showGraph}
+        graph={graph}
+        graphCursor={graphCursor}
+        handleSelectCommit={(i) => {
+          setGraphCursor(i);
+          setFocus("graph");
+        }}
+        cell={cell}
+        sizes={panes.sizes}
+        resizing={panes.resizing}
+        handleGrab={panes.setResizing}
+        width={width}
+        height={bodyH}
+      />
+    );
+  };
+
+  const counted = (id: string) =>
+    lists?.[id]?.filter((p) => !pending.hidden.has(prKey(p))).length;
 
   return (
     <box
@@ -1203,21 +929,85 @@ export const App = ({
       width={width}
       height={height}
       backgroundColor={C.bg}
-      onMouseDrag={(event) => dragTo(event.x)}
-      onMouseUp={() => setResizing(null)}
+      onMouseDrag={(event) => panes.dragTo(event.x)}
+      onMouseUp={() => panes.setResizing(null)}
     >
       <Header
-        repo={repo}
+        scope={scope}
         busy={busy}
         dryRun={dryRun}
         method={method}
         updateMethod={updateMethod}
       />
-      <TabBar tab={tab} counts={counts} onSelect={selectTab} />
+      {screen === "list" ? (
+        <TabBar
+          tabs={queues.map((q) => ({
+            count: counted(q.id),
+            id: q.id,
+            label: q.label,
+          }))}
+          active={tab}
+          filter={filter}
+          filtering={filtering}
+          onSelect={showQueue}
+          onFilter={(value) => {
+            setFilter(value);
+            setCursor(0);
+          }}
+        />
+      ) : null}
       <box flexGrow={1} flexDirection="column" marginTop={1}>
-        {main}
+        {main()}
       </box>
-      <Footer toast={toast} view={hintMode(view, inGraph)} />
+      <Footer
+        toast={toast}
+        hints={hintsFor(
+          commands,
+          HINTS[inGraph && screen === "list" ? "graph" : screen] ?? []
+        )}
+        width={width}
+      />
+      <ModalHost
+        modal={modal}
+        commands={commands}
+        screen={screen}
+        themeChoice={theme.choice}
+        files={diff.value?.files ?? []}
+        onClose={() => setModal(null)}
+        onPreview={(choice) => theme.setPreview(choice)}
+        onTheme={(choice) => {
+          theme.setPreview(null);
+          theme.setChoice(choice);
+          saveConfig({ theme: choice });
+        }}
+        onJumpFile={(path) =>
+          setDiffMoved(
+            Math.max(
+              0,
+              rows.findIndex((r) => r.kind === "file" && r.path === path)
+            )
+          )
+        }
+        onLabels={(p, names) =>
+          attempt("Saving labels", `Labels saved on #${p.number}`, () =>
+            setLabels(p, names)
+          )
+        }
+        onReview={(p, event, body) =>
+          attempt("Submitting review", `Reviewed #${p.number}`, () =>
+            submitReview(p, event, body)
+          )
+        }
+        onCopy={async (label, value) => {
+          const ok = await copyText(renderer, value);
+          flash(
+            ok
+              ? `Copied ${label.toLowerCase()}: ${value}`
+              : "Couldn't reach a clipboard",
+            ok ? C.green : C.red
+          );
+        }}
+      />
     </box>
   );
 };

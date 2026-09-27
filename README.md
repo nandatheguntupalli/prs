@@ -1,6 +1,6 @@
 # prs
 
-Superhuman for pull requests. A keyboard-first TUI for clearing your PR inbox, built on [OpenTUI](https://github.com/anomalyco/opentui).
+Superhuman for pull requests. A keyboard-first TUI for reviewing, merging, and keeping up with pull requests, built on [OpenTUI](https://github.com/anomalyco/opentui).
 
 ## Install
 
@@ -13,38 +13,67 @@ Talks to GitHub directly through its API. It signs in with the [`gh` CLI](https:
 ## Usage
 
 ```sh
-prs                   # open PRs for the repo in the current directory
+prs                   # the repo in the current directory
 prs owner/repo        # or any repo
-prs --method squash   # merge (default), squash, or rebase
-prs --update merge    # how Update brings a branch up to date: rebase (default) or merge
-prs --delay 2         # seconds before a merge fires (default 4)
-prs --dry-run         # nothing is merged or approved
+prs --all             # your PRs across GitHub (also what you get outside a repo)
+prs --method squash   # how m merges: merge (default), squash, or rebase
+prs --update merge    # how u updates a branch: rebase (default) or merge
+prs --delay 2         # seconds before a merge or close fires (default 4)
+prs --dry-run         # nothing on GitHub changes
 prs --text-graph      # draw the graph with characters, even if the terminal can show images
 ```
 
-| key | list | diff |
-| --- | --- | --- |
-| `j` / `k` | move | scroll |
-| `⏎` / `d` | open diff |  |
-| `m` | **merge** (and delete branch) | merge |
-| `x` | close | close |
-| `z` | undo a pending merge or close | undo |
-| `u` | update branch (rebases onto the base; `--update merge` merges it in) | page up |
-| `a` | approve | approve |
-| `o` | open in browser | open in browser |
-| `tab` / `1`–`3` | switch between All, Mine, Review requested |  |
-| `h` / `l` | move between the graph and the PR list | back / |
-| `v` | show or hide the graph |  |
-| `[` / `]` | shrink / grow the graph |  |
-| `{` / `}` | shrink / grow the sidebar |  |
-| `=` | reset pane sizes |  |
-| `p` | toggle the sidebar |  |
-| `space` / `b` |  | page down / up |
-| `J` / `K` |  | next / prev |
-| `r` | refresh | refresh |
-| `q` / `esc` | quit | back |
+Press `?` for every key, or `ctrl+p` to find any action by name.
 
-The mouse works too: click a row, a tab, or the **Merge**, **Update**, and **Close** buttons in the sidebar, and drag the lines between panes to resize them. Pane sizes are remembered in `~/.config/prs/layout.json`. The sidebar shows how far a PR's branch is behind its base, and **Update** appears when it is.
+## Pull requests
+
+In a repo, the queues are **All**, **Mine**, and **Review requested**. With `--all` they're **Mine**, **Review requested**, and **Involved**, across every repo.
+
+| key | |
+| --- | --- |
+| `m` | **merge** (and delete the branch) |
+| `x` | close |
+| `z` | undo a merge or close that hasn't fired yet |
+| `a` | approve |
+| `R` | review: comment, approve, or request changes, with a message |
+| `u` | update the branch from its base |
+| `s` | toggle draft / ready for review |
+| `L` | labels |
+| `c` | checks: every CI check, then a job's steps and log (`n` / `p` jump between errors) |
+| `y` | copy the URL, a markdown link, the branch, or a checkout command |
+| `e` | open in your editor (see below) |
+| `o` | open in the browser |
+
+Merges and closes wait a few seconds before running, like Superhuman's undo send, so `z` can take one back. Quitting while one is pending runs it right away. The sidebar shows how far a branch is behind its base; **Update** appears when it is, unless the branch conflicts, which has to be fixed locally.
+
+## Moving around
+
+| key | |
+| --- | --- |
+| `j` / `k`, `gg` / `G` | move, top, bottom |
+| `ctrl+d` / `ctrl+u` | page down / up |
+| `tab` / `1`–`3` | switch queues |
+| `/` | filter by title, author, branch, or number |
+| `⏎` / `d` | diff |
+| `h` / `l` | move between the graph and the PRs |
+| `v` / `p` | show or hide the graph / the details |
+| `[` `]` / `{` `}` / `=` | resize the graph / the details / reset |
+| `t` | theme |
+
+The mouse works too: click rows, tabs, and the sidebar's buttons, and drag the lines between panes to resize them.
+
+## Diffs and comments
+
+The diff shows line numbers, each file under its own header, and review comments inline under the lines they're on (outdated ones under their file).
+
+| key | |
+| --- | --- |
+| `]` / `[` | next / previous file |
+| `f` | jump to a file |
+| `n` / `p` | next / previous comment thread |
+| `⏎` | comment on the line, or reply on a thread |
+| `v` | select lines, then `⏎` to comment on the range |
+| `J` / `K` | next / previous PR |
 
 ## Stacked PRs
 
@@ -56,19 +85,41 @@ After a squash merge, PRs higher in the stack still carry the original commits a
 
 ## Graph
 
-The graph sits on the left, drawn like VS Code's: one row per commit, colored lanes, and the branch pill right next to its commit. Press `h` to move into it, `j`/`k` to walk the history, `⏎` to see a commit, and `l` to go back to the PRs. PR keys like `m` don't act while you're in the graph.
+The commit graph sits on the left, drawn like VS Code's: one row per commit, colored lanes, and the branch pill right next to its commit. `h` moves into it, `⏎` shows a commit, and `l` goes back to the PRs. PR keys like `m` don't act while you're in the graph.
 
-In terminals that can show images (Ghostty, Kitty, WezTerm, and others with the Kitty graphics protocol or Sixel), the graph is drawn in pixels: smooth lines through the commit dots and rounded curves, like VS Code. Everywhere else it's drawn with characters. Pass `--text-graph` to always use characters.
+In terminals that can show images (Ghostty, Kitty, WezTerm, and others with the Kitty graphics protocol or Sixel), the graph is drawn in pixels: smooth lines through the commit dots and rounded curves. Everywhere else it's drawn with characters.
 
-Run `prs` inside a clone and the graph reads that clone's history. Anywhere else, `prs` keeps a small bare clone (no file contents until you open a commit) in `~/.cache/prs`. Either way it fetches in the background.
+Run `prs` inside a clone and the graph reads that clone's history. Anywhere else, `prs` keeps a small bare clone (no file contents until you open a commit) in `~/.cache/prs`.
 
-Merges and closes wait a few seconds before running, like Superhuman's undo send. Hit `z` to take one back. Quitting while one is pending runs it right away.
+## Settings
+
+`~/.config/prs/config.json`:
+
+```jsonc
+{
+  // "system" follows the terminal's light / dark mode; or "midnight", "graphite", "nord", "tokyo", "paper"
+  "theme": "system",
+
+  // what `e` runs; {{repo}} {{owner}} {{name}} {{number}} {{headRef}} {{baseRef}} {{author}} {{url}} {{repoPath}}
+  "editorCommand": "code {{repoPath}}",
+
+  // where your clones are, for {{repoPath}}: an exact repo, an owner's repos, or a pattern
+  "repoPaths": {
+    "useTaiga/siberia": "~/VS/siberia",
+    "useTaiga/*": "~/code/useTaiga/*",
+    ":owner/:repo": "~/src/:owner/:repo"
+  }
+}
+```
+
+Without `editorCommand`, `e` opens the clone in `$VISUAL` or `$EDITOR`. Pane sizes are kept in `~/.config/prs/layout.json`.
 
 ## Development
 
 ```sh
 bun install
 bun start owner/repo
+bun test
 bun run build         # standalone binary at dist/prs
 ```
 

@@ -8,7 +8,7 @@ export interface PaneSizes {
   sidebar: number;
 }
 
-export const DEFAULT_SIZES: PaneSizes = { graph: 0.4, sidebar: 0.42 };
+export const DEFAULT_SIZES: PaneSizes = { graph: 0.32, sidebar: 0.36 };
 
 const LIMITS: Record<keyof PaneSizes, [number, number]> = {
   graph: [0.15, 0.7],

@@ -6,6 +6,7 @@ import { createRoot } from "@opentui/react";
 
 import pkg from "../package.json";
 import { App } from "./app.tsx";
+import { loadConfig } from "./config.ts";
 import { currentRepo, dryRun } from "./gh.ts";
 import type { MergeMethod, UpdateMethod } from "./gh.ts";
 import { localCheckout } from "./git.ts";
@@ -15,6 +16,7 @@ const { values, positionals } = parseArgs({
   allowPositionals: true,
   args: Bun.argv.slice(2),
   options: {
+    all: { short: "a", type: "boolean" },
     delay: { default: "4", short: "d", type: "string" },
     "dry-run": { type: "boolean" },
     help: { short: "h", type: "boolean" },
@@ -31,9 +33,10 @@ if (values.version) {
 }
 
 if (values.help) {
-  console.log(`prs [owner/repo] [--method merge|squash|rebase] [--update rebase|merge] [--delay seconds] [--dry-run] [--text-graph]
+  console.log(`prs [owner/repo] [--all] [--method merge|squash|rebase] [--update rebase|merge] [--delay seconds] [--dry-run] [--text-graph]
 
-Keyboard-first PR inbox. Defaults to the repo in the current directory.`);
+Keyboard-first PR inbox. Shows the repo in the current directory, or with --all (or
+outside a repo) your pull requests across GitHub. Settings: ~/.config/prs/config.json`);
   process.exit(0);
 }
 
@@ -52,16 +55,13 @@ if (!["rebase", "merge"].includes(updateMethod)) {
 // the repo this directory is a clone of, if any; the graph reads its history directly
 const here = await currentRepo().catch(() => "");
 
-const repo = positionals[0] ?? here;
-if (!repo) {
-  console.error("Not in a GitHub repo. Pass one: prs owner/repo");
-  process.exit(1);
-}
+// one repo, or "" for every repo you're involved in
+const scope = values.all ? "" : (positionals[0] ?? here);
 
 dryRun.enabled = !!values["dry-run"];
 
-const local = here === repo ? await localCheckout() : null;
-const initialSizes = await loadSizes();
+const local = scope && here === scope ? await localCheckout() : null;
+const [initialSizes, config] = await Promise.all([loadSizes(), loadConfig()]);
 
 const renderer = await createCliRenderer({
   backgroundColor: "#000000",
@@ -77,8 +77,9 @@ const quit = () => {
 
 createRoot(renderer).render(
   <App
-    repo={repo}
+    scope={scope}
     local={local}
+    config={config}
     textGraph={Boolean(values["text-graph"])}
     initialSizes={initialSizes}
     method={method}
