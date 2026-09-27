@@ -99,11 +99,15 @@ interface ErrorBody {
   errors?: (string | { message?: string })[];
 }
 
-// GitHub's own reason, without the status text and docs link Octokit wraps it in
+// GitHub's own reason, without the wrapping Octokit adds: REST errors carry it in the response
+// body, GraphQL errors in `errors`, behind a "Request failed due to following response errors" line
 export const errorMessage = (error: unknown) => {
+  const graphql = (error as { errors?: { message?: string }[] }).errors?.[0]
+    ?.message;
   const body = (error as { response?: { data?: ErrorBody } }).response?.data;
   const [first] = body?.errors ?? [];
-  const reason = typeof first === "string" ? first : first?.message;
+  const reason =
+    graphql ?? (typeof first === "string" ? first : first?.message);
   const message =
     reason ??
     body?.message ??

@@ -318,7 +318,7 @@ const Sidebar = ({
             color={C.blue}
             onPress={actions.handleApprove}
           />
-          {behind && behind > 0 ? (
+          {behind && behind > 0 && pr.mergeable !== "CONFLICTING" ? (
             <Button
               label="Update"
               color={C.yellow}
@@ -879,7 +879,9 @@ export const App = ({
   // bumped each time a merge or close lands (or fails), to reload the list
   const [settled, setSettled] = useState(0);
 
-  const flash = (text: string, color = C.text) => setToast({ color, text });
+  // toasts are one line; a line break would spill into the key hints below
+  const flash = (text: string, color = C.text) =>
+    setToast({ color, text: text.replaceAll(/\s+/gu, " ").trim() });
   const pending = usePendingAction({
     delay,
     flash,
@@ -980,6 +982,14 @@ export const App = ({
   };
 
   const doUpdate = async (target: PR) => {
+    // GitHub can't rebase or merge a branch that conflicts with its base
+    if (target.mergeable === "CONFLICTING") {
+      flash(
+        `#${target.number} conflicts with ${target.baseRefName}; resolve it locally, then push`,
+        C.red
+      );
+      return;
+    }
     const how = updateMethod === "rebase" ? "Rebasing" : "Updating";
     flash(`${how} #${target.number} onto ${target.baseRefName}…`, C.yellow);
     try {
