@@ -3,6 +3,7 @@
 const NERD = {
   closed: "",
   draft: "",
+  github: "",
   merged: "",
   pr: "",
 };
@@ -10,6 +11,7 @@ const NERD = {
 const PLAIN = {
   closed: "×",
   draft: "◇",
+  github: "◉",
   merged: "✓",
   pr: "↳",
 };

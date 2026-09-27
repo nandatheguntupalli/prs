@@ -45,7 +45,7 @@ import {
 import { mergePlan, prKey } from "./stacks.ts";
 import { C } from "./theme.ts";
 import { ChecksView, JobView } from "./ui/checks.tsx";
-import { Footer, Header, PRTitle, TabBar } from "./ui/chrome.tsx";
+import { Footer, Header, PRTitle, pullsUrl, TabBar } from "./ui/chrome.tsx";
 import type { Toast } from "./ui/chrome.tsx";
 import { anchorOf } from "./ui/diff-model.ts";
 import { diffSubtitle, DiffView, fileAt, jump } from "./ui/diff.tsx";
@@ -295,6 +295,8 @@ export const App = ({
     }
   };
 
+  const openPulls = () => openInBrowser(pullsUrl(scope));
+
   const approve = (p: PR) =>
     attempt(`Approving #${p.number}`, `Approved #${p.number}`, () =>
       submitReview(p, "APPROVE")
@@ -491,7 +493,8 @@ export const App = ({
     open: openThing,
     openCheck,
     openDiff,
-    page: pageSize(height - 7),
+    openPulls,
+    page: pageSize(height - 9),
     palette: () => setModal({ kind: "palette" }),
     queues,
     quit: () => (screen === "list" ? quit() : back()),
@@ -542,7 +545,7 @@ export const App = ({
     action?.();
   });
 
-  const bodyH = height - (screen === "list" ? 7 : 5);
+  const bodyH = height - (screen === "list" ? 9 : 7);
   const title: ReactNode = pr ? <PRTitle pr={pr} showRepo={showRepo} /> : null;
 
   const main = (): ReactNode => {
@@ -636,6 +639,7 @@ export const App = ({
         dryRun={dryRun}
         method={method}
         updateMethod={updateMethod}
+        onOpenPulls={openPulls}
       />
       {screen === "list" ? (
         <TabBar
