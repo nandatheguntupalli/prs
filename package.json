@@ -18,5 +18,5 @@
     "build": "bun scripts/build.ts",
     "release": "bun scripts/bump.ts"
   },
-  "version": "0.1.0"
+  "version": "0.1.1"
 }
