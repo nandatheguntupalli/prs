@@ -1,6 +1,6 @@
 {
   "name": "prs",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "private": true,
   "description": "A keyboard-first terminal UI for reviewing and merging pull requests",
   "license": "MIT",
