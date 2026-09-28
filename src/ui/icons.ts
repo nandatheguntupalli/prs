@@ -1,6 +1,9 @@
 // Nerd Font codicons, with plain fallbacks for fonts without them ("icons": "plain").
 
 const NERD = {
+  // rounded ends for pills
+  capL: "",
+  capR: "",
   closed: "",
   draft: "",
   github: "",
@@ -9,6 +12,8 @@ const NERD = {
 };
 
 const PLAIN = {
+  capL: "▐",
+  capR: "▌",
   closed: "×",
   draft: "◇",
   github: "◉",

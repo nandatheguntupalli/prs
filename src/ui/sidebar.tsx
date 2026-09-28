@@ -19,7 +19,7 @@ import {
 } from "./format.ts";
 import type { Action } from "./keys.ts";
 import { markdownStyle } from "./markdown.ts";
-import { BOLD, Button, SectionTitle } from "./primitives.tsx";
+import { BOLD, Button, Pill, SectionTitle } from "./primitives.tsx";
 import { isOpen, statusLook } from "./status.ts";
 import type { Status } from "./status.ts";
 
@@ -118,8 +118,13 @@ const LabelChips = ({ pr }: { pr: PR }) =>
   pr.labels.length === 0 ? null : (
     <box flexDirection="row" flexWrap="wrap" gap={1} marginTop={1}>
       {pr.labels.map((l) => (
-        <text key={l.name} bg={`#${l.color}`} fg={labelText(l.color)}>
-          {` ${l.name} `}
+        <text key={l.name} wrapMode="none">
+          <Pill
+            label={l.name}
+            fg={labelText(l.color)}
+            bg={`#${l.color}`}
+            bold={false}
+          />
         </text>
       ))}
     </box>
@@ -167,11 +172,9 @@ const DetailHeader = ({
     <box flexDirection="column" flexShrink={0}>
       <box
         flexDirection="column"
-        backgroundColor={C.panel}
-        paddingLeft={1}
+        paddingLeft={2}
         paddingRight={1}
         paddingTop={1}
-        paddingBottom={1}
       >
         <text fg={C.dim} wrapMode="none">
           <a href={pr.url}>{fit(`${pr.repo} · #${pr.number}`, width - 4)}</a>
@@ -180,15 +183,13 @@ const DetailHeader = ({
           {pr.title}
         </text>
       </box>
-      <box flexDirection="column" paddingLeft={1} marginTop={1}>
+      <box flexDirection="column" paddingLeft={2} marginTop={1}>
         <text wrapMode="none">
-          <span bg={look.color} fg={C.bg} attributes={BOLD}>
-            {pill}
-          </span>
+          <Pill label={pill} fg={C.bg} bg={look.color} />
           <span fg={C.dim}>
             {fit(
               `  ${pr.baseRefName} ← ${pr.headRefName}`,
-              width - pill.length - 3
+              width - pill.length - 6
             )}
           </span>
         </text>
@@ -199,22 +200,21 @@ const DetailHeader = ({
             fg={C.faint}
           >{` · ${age(pr.createdAt)} ago${association}`}</span>
         </text>
-        <box flexDirection="row" gap={2} marginTop={1} height={1}>
+        <box flexDirection="row" flexWrap="wrap" marginTop={1}>
           {DETAIL_TABS.map((t) => (
             <box key={t.id} onMouseDown={() => onTab(t.id)}>
-              <text
-                fg={t.id === tab ? C.accent : C.dim}
-                attributes={t.id === tab ? BOLD : 0}
-              >
-                {t.label}
+              <text wrapMode="none">
+                {t.id === tab ? (
+                  <Pill label={t.label} fg={C.accent} bg={C.accentSoft} />
+                ) : (
+                  <span fg={C.dim}>{` ${t.label} `}</span>
+                )}
+                <span> </span>
               </text>
             </box>
           ))}
         </box>
       </box>
-      <text fg={C.border} wrapMode="none">
-        {"─".repeat(Math.max(0, width))}
-      </text>
     </box>
   );
 };
@@ -564,20 +564,29 @@ export const Sidebar = ({
   onTab: (tab: DetailTab) => void;
   actions: PRActions;
 }) => {
-  const inner = width - 3;
+  // the outline takes a column each side
+  const card = width - 2;
+  const inner = card - 3;
   return (
-    <box width={width} flexDirection="column" overflow="hidden">
+    <box
+      width={width}
+      flexDirection="column"
+      overflow="hidden"
+      border
+      borderStyle="rounded"
+      borderColor={C.border}
+    >
       <DetailHeader
         pr={pr}
         status={status}
-        width={width}
+        width={card}
         tab={tab}
         onTab={onTab}
       />
       <scrollbox
         flexGrow={1}
         scrollY
-        paddingLeft={1}
+        paddingLeft={2}
         paddingRight={1}
         paddingTop={1}
         verticalScrollbarOptions={{ visible: false }}

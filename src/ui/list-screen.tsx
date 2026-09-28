@@ -16,6 +16,7 @@ import type { Status } from "./status.ts";
 
 // Only the grab happens here. The drag is handled at the app root, because the pointer
 // leaves a 1-cell-wide line on the first motion event.
+// A gap between the list and the sidebar's card, drawn only while hovered or dragged.
 const Divider = ({ active, onGrab }: { active: boolean; onGrab: Action }) => {
   const [hot, setHot] = useState(false);
   return (
@@ -23,7 +24,7 @@ const Divider = ({ active, onGrab }: { active: boolean; onGrab: Action }) => {
       width={1}
       flexShrink={0}
       border={["left"]}
-      borderColor={hot || active ? C.accent : C.border}
+      borderColor={hot || active ? C.accent : C.bg}
       onMouseOver={() => setHot(true)}
       onMouseOut={() => setHot(false)}
       onMouseDown={onGrab}
@@ -84,11 +85,12 @@ export interface ListProps {
 }
 
 export const ListScreen = (p: ListProps) => {
-  const paneW = p.width;
+  // a column of margin on each side
+  const paneW = p.width - 2;
   const sideW = sidebarCells(paneW, p.sidebar, p.sizes.sidebar);
   const showSidebar = Boolean(p.pr) && p.sidebar;
   return (
-    <box flexGrow={1} flexDirection="row">
+    <box flexGrow={1} flexDirection="row" paddingLeft={1} paddingRight={1}>
       {p.pr ? (
         <PRTable
           list={p.list}

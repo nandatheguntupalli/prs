@@ -6,9 +6,32 @@ import type { ReactNode } from "react";
 
 import { C } from "../theme.ts";
 import { fit } from "./format.ts";
+import { ICONS } from "./icons.ts";
 import type { Action } from "./keys.ts";
 
 export const { BOLD } = TextAttributes;
+
+// Spans, so it can sit inside a <text>. The caps take the color of whatever is behind them.
+// Takes label.length + 2 columns.
+export const Pill = ({
+  label,
+  fg,
+  bg,
+  bold = true,
+}: {
+  label: string;
+  fg: string;
+  bg: string;
+  bold?: boolean;
+}) => (
+  <>
+    <span fg={bg}>{ICONS.capL}</span>
+    <span fg={fg} bg={bg} attributes={bold ? BOLD : 0}>
+      {label}
+    </span>
+    <span fg={bg}>{ICONS.capR}</span>
+  </>
+);
 
 export const Button = ({
   label,
@@ -20,17 +43,15 @@ export const Button = ({
   onPress: Action;
 }) => (
   <box height={1} onMouseDown={onPress}>
-    <text fg={C.bg} bg={color} attributes={BOLD}>
-      {` ${label} `}
+    <text wrapMode="none">
+      <Pill label={` ${label} `} fg={C.bg} bg={color} />
     </text>
   </box>
 );
 
 export const KeyHint = ({ keys, label }: { keys: string; label: string }) => (
   <text wrapMode="none">
-    <span fg={C.accent} bg={C.accentSoft} attributes={BOLD}>
-      {` ${keys} `}
-    </span>
+    <Pill label={keys} fg={C.accent} bg={C.accentSoft} />
     <span fg={C.dim}>{` ${label}`}</span>
   </text>
 );
@@ -80,7 +101,8 @@ export const Modal = ({
   footer?: string;
 }) => {
   const dims = useTerminalDimensions();
-  const w = Math.min(width, dims.width - 4);
+  // `width` is what the caller laid out for, with one column of padding a side
+  const w = Math.min(width + 2, dims.width - 4);
   return (
     <box
       position="absolute"
@@ -98,12 +120,13 @@ export const Modal = ({
         flexDirection="column"
         border
         borderStyle="rounded"
-        borderColor={C.accent}
+        borderColor={C.faint}
         backgroundColor={C.panel}
         title={` ${title} `}
         titleColor={C.accent}
-        paddingLeft={1}
-        paddingRight={1}
+        paddingLeft={2}
+        paddingRight={2}
+        paddingTop={1}
       >
         {children}
         {footer ? (

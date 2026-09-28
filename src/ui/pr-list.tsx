@@ -37,15 +37,21 @@ const reviewMark = (pr: PR): { icon: string; color: string } => {
   }
 };
 
+// two lines inside a rounded outline
+const BLOCK_H = 4;
+
 const cell = (text: string, width: number) =>
   text.padStart(width - 1).padEnd(width);
 
+// lines up with the inside of a PR's outline
 const Header = ({ width }: { width: number }) => (
   <box
     height={1}
     flexDirection="row"
     justifyContent="space-between"
     width={width}
+    paddingLeft={1}
+    paddingRight={1}
   >
     <text fg={C.faint} wrapMode="none">
       {"    Title"}
@@ -73,11 +79,7 @@ const PRBlock = ({
   width: number;
   onSelect: () => void;
 }) => {
-  const lit = selected && focused;
-  const bg = lit ? C.selected : C.bg;
-  const marker = (
-    <span fg={focused ? C.accent : C.faint}>{selected ? "▌" : " "}</span>
-  );
+  const inner = width - 2;
   const ci = checksStatus(pr.checks);
   const rv = reviewMark(pr);
   const look = statusLook(status);
@@ -89,18 +91,24 @@ const PRBlock = ({
     tag = `  stack ${stack.index + 1}/${stack.stack.members.length}`;
   }
   const meta = `${pr.repo} #${pr.number} by @${pr.author}`;
-  const room = width - 4 - RIGHT_W;
+  const room = inner - 4 - RIGHT_W;
   const title = pr.isDraft && open ? `${pr.title}  (draft)` : pr.title;
+  let edge = C.bg;
+  if (selected) {
+    edge = focused ? C.accent : C.faint;
+  }
   return (
-    <box flexDirection="column" onMouseDown={onSelect}>
-      <box
-        height={1}
-        backgroundColor={bg}
-        flexDirection="row"
-        justifyContent="space-between"
-      >
+    // the outline is always there, in the background color when not selected, so rows don't shift
+    <box
+      height={BLOCK_H}
+      flexDirection="column"
+      border
+      borderStyle="rounded"
+      borderColor={edge}
+      onMouseDown={onSelect}
+    >
+      <box height={1} flexDirection="row" justifyContent="space-between">
         <text wrapMode="none">
-          {marker}
           <span fg={look.color}>{` ${look.icon}  `}</span>
           <span fg={C.dim}>{fit(meta, Math.max(8, room - tag.length))}</span>
           <span fg={open ? C.blue : look.color} attributes={open ? 0 : BOLD}>
@@ -122,24 +130,15 @@ const PRBlock = ({
           <span> </span>
         </text>
       </box>
-      <box height={1} backgroundColor={bg}>
-        <text wrapMode="none">
-          {marker}
-          <span>{"    "}</span>
-          <span fg={pr.isDraft || !open ? C.dim : C.text} attributes={BOLD}>
-            {fit(title, width - 6)}
-          </span>
-        </text>
-      </box>
-      <text fg={C.border} wrapMode="none">
-        {"─".repeat(Math.max(0, width))}
+      <text wrapMode="none">
+        <span>{"    "}</span>
+        <span fg={pr.isDraft || !open ? C.dim : C.text} attributes={BOLD}>
+          {fit(title, inner - 5)}
+        </span>
       </text>
     </box>
   );
 };
-
-// two lines plus a separator
-const BLOCK_H = 3;
 
 export const PRTable = ({
   list,
@@ -162,10 +161,7 @@ export const PRTable = ({
 }) => (
   <box width={width} flexDirection="column" overflow="hidden">
     <Header width={width} />
-    <text fg={C.border} wrapMode="none">
-      {"─".repeat(Math.max(0, width))}
-    </text>
-    <ScrollList cursor={cursor} rowHeight={BLOCK_H} height={height - 2}>
+    <ScrollList cursor={cursor} rowHeight={BLOCK_H} height={height - 1}>
       {list.map((p, i) => (
         <PRBlock
           key={prKey(p)}
@@ -183,4 +179,4 @@ export const PRTable = ({
 );
 
 export const pageSize = (height: number) =>
-  Math.max(1, Math.floor((height - 2) / BLOCK_H) - 1);
+  Math.max(1, Math.floor((height - 1) / BLOCK_H) - 1);
