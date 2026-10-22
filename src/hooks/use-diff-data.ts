@@ -5,7 +5,7 @@ import { listThreads } from "../github/comments.ts";
 import { getDiff } from "../github/prs.ts";
 import type { PR } from "../github/prs.ts";
 import { prKey } from "../stacks.ts";
-import { parseDiff, withThreads } from "../ui/diff-model.ts";
+import { parseDiff, withoutTests, withThreads } from "../ui/diff-model.ts";
 import { useLoader } from "./use-loader.ts";
 
 export const useDiffData = ({
@@ -13,12 +13,14 @@ export const useDiffData = ({
   pr,
   moved,
   width,
+  showTests,
 }: {
   screen: Screen;
   pr: PR | undefined;
   // null until the user moves; until then the cursor sits on the first line of code
   moved: number | null;
   width: number;
+  showTests: boolean;
 }) => {
   const open = screen === "diff" && pr;
   const diff = useLoader(
@@ -28,9 +30,15 @@ export const useDiffData = ({
   const threads = useLoader(open ? `threads:${prKey(pr)}` : null, () =>
     pr ? listThreads(pr) : Promise.resolve([])
   );
+  const shown = useMemo(
+    () => (diff.value && !showTests ? withoutTests(diff.value) : diff.value),
+    [diff.value, showTests]
+  );
+  const hiddenTests =
+    (diff.value?.files.length ?? 0) - (shown?.files.length ?? 0);
   const rows = useMemo(
-    () => withThreads(diff.value?.rows ?? [], threads.value ?? [], width - 32),
-    [diff.value, threads.value, width]
+    () => withThreads(shown?.rows ?? [], threads.value ?? [], width - 32),
+    [shown, threads.value, width]
   );
   const cursor =
     moved ??
@@ -38,5 +46,5 @@ export const useDiffData = ({
       0,
       rows.findIndex((r) => r.kind === "line")
     );
-  return { cursor, diff, rows, threads };
+  return { cursor, diff, hiddenTests, rows, shown, threads };
 };
