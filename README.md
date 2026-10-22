@@ -70,6 +70,7 @@ Merges and closes wait a few seconds before they go through, and `z` cancels the
 | `L` | labels           |
 | `c` | checks and logs  |
 | `y` | copy             |
+| `Y` | copy link        |
 | `e` | open in editor   |
 | `B` | check out branch |
 | `o` | open in browser  |

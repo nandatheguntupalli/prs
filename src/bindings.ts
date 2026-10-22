@@ -20,6 +20,7 @@ export interface CommandContext {
   labels: (p: PR) => unknown;
   checks: (p: PR) => unknown;
   copy: (p: PR) => unknown;
+  copyUrl: (p: PR) => unknown;
   edit: (p: PR) => unknown;
   checkout: (p: PR) => unknown;
   undo: () => unknown;
@@ -145,6 +146,14 @@ export const buildCommands = (x: CommandContext): Cmd[] => {
       keys: ["y"],
       label: "Copy…",
       run: x.withPR(x.copy),
+      screens: LD,
+      section: prs,
+    },
+    {
+      id: "copy-url",
+      keys: ["Y"],
+      label: "Copy link",
+      run: x.withPR(x.copyUrl),
       screens: LD,
       section: prs,
     },

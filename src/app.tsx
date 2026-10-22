@@ -311,6 +311,16 @@ export const App = ({
       () => setDraft(p, !p.isDraft)
     );
 
+  const copy = async (label: string, value: string) => {
+    const ok = await copyText(renderer, value);
+    flash(
+      ok
+        ? `Copied ${label.toLowerCase()}: ${value}`
+        : "Couldn't reach a clipboard",
+      ok ? C.green : C.red
+    );
+  };
+
   const prActions: PRActions = {
     handleApprove: withPR(whenOpen(approve)),
     handleClose: withPR(closeOrReopen),
@@ -449,6 +459,7 @@ export const App = ({
     close: closeOrReopen,
     comment,
     copy: (p) => setModal({ kind: "copy", pr: p }),
+    copyUrl: (p) => copy("URL", p.url),
     cycleQueue,
     diffBottom: () => setDiffMoved(rows.length - 1),
     diffTop: () => setDiffMoved(0),
@@ -697,15 +708,7 @@ export const App = ({
             submitReview(p, event, body)
           )
         }
-        onCopy={async (label, value) => {
-          const ok = await copyText(renderer, value);
-          flash(
-            ok
-              ? `Copied ${label.toLowerCase()}: ${value}`
-              : "Couldn't reach a clipboard",
-            ok ? C.green : C.red
-          );
-        }}
+        onCopy={copy}
       />
     </box>
   );
