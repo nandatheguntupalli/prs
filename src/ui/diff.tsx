@@ -116,6 +116,7 @@ export const DiffView = ({
   width,
   height,
   loading,
+  empty,
 }: {
   title: ReactNode;
   subtitle: string;
@@ -125,6 +126,8 @@ export const DiffView = ({
   width: number;
   height: number;
   loading: boolean;
+  // shown when every file is hidden
+  empty: string;
 }) => {
   const bodyH = height - 2;
   const [lo, hi] =
@@ -137,9 +140,9 @@ export const DiffView = ({
       <text fg={C.faint} wrapMode="none" truncate>
         {subtitle}
       </text>
-      {loading ? (
+      {loading || rows.length === 0 ? (
         <text fg={C.dim} marginTop={1}>
-          Loading diff…
+          {loading ? "Loading diff…" : empty}
         </text>
       ) : (
         <ScrollList cursor={cursor} height={bodyH}>
@@ -186,12 +189,14 @@ export const fileAt = (rows: Row[], at: number) => {
 
 export const diffSubtitle = (
   diff: ParsedDiff | null,
+  hiddenTests: number,
   threadCount: number,
   where: string,
   selecting: boolean
 ) =>
   [
     plural(diff?.files.length ?? 0, "file"),
+    hiddenTests ? `${plural(hiddenTests, "test file")} hidden, T to show` : "",
     threadCount ? plural(threadCount, "comment thread") : "",
     where ? fit(where, 60) : "",
     selecting ? "selecting lines, ⏎ to comment" : "",
